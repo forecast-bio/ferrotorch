@@ -112,13 +112,34 @@ impl<T: Float> ConvBnAct<T> {
         bn_momentum: f64,
         act: Option<ActivationKind>,
     ) -> FerrotorchResult<Self> {
+        Self::new_with_dilation(
+            in_ch, out_ch, kernel, stride, padding, 1, groups, bn_eps, bn_momentum, act,
+        )
+    }
+
+    /// Same as [`Self::new`] but with explicit dilation (default for
+    /// [`Self::new`] is 1). #1146: required for MobileNetV3-Large blocks
+    /// 12-14 when used as the dilated backbone for LRASPP segmentation.
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_dilation(
+        in_ch: usize,
+        out_ch: usize,
+        kernel: usize,
+        stride: usize,
+        padding: usize,
+        dilation: usize,
+        groups: usize,
+        bn_eps: f64,
+        bn_momentum: f64,
+        act: Option<ActivationKind>,
+    ) -> FerrotorchResult<Self> {
         let conv = Conv2d::new_full(
             in_ch,
             out_ch,
             (kernel, kernel),
             (stride, stride),
             (padding, padding),
-            (1, 1),
+            (dilation, dilation),
             groups,
             false, // bias=False — torchvision Conv2dNormActivation pattern
         )?;
@@ -705,6 +726,13 @@ struct V3BlockCfg {
     use_se: bool,
     use_hs: bool,
     stride: usize,
+    /// Depthwise-conv dilation. 1 in the classification configs (Small +
+    /// non-dilated Large). #1146: blocks 12-14 of MobileNetV3-Large get
+    /// dilation=2 when the dilated-backbone variant is constructed for
+    /// LRASPP (`replace_stride_with_dilation=[True, True, True]` collapses
+    /// to the last 3 blocks since torchvision only inserts dilation
+    /// updates at the C4/C5 boundary).
+    dilation: usize,
 }
 
 /// Round `v` up to the nearest multiple of `divisor`, clamped to a lower
@@ -731,6 +759,7 @@ const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
         use_se: true,
         use_hs: false,
         stride: 2,
+        dilation: 1,
     },
     V3BlockCfg {
         in_ch: 16,
@@ -740,6 +769,7 @@ const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
         use_se: false,
         use_hs: false,
         stride: 2,
+        dilation: 1,
     },
     V3BlockCfg {
         in_ch: 24,
@@ -749,6 +779,7 @@ const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
         use_se: false,
         use_hs: false,
         stride: 1,
+        dilation: 1,
     },
     V3BlockCfg {
         in_ch: 24,
@@ -758,6 +789,7 @@ const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
         use_se: true,
         use_hs: true,
         stride: 2,
+        dilation: 1,
     },
     V3BlockCfg {
         in_ch: 40,
@@ -767,6 +799,7 @@ const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
         use_se: true,
         use_hs: true,
         stride: 1,
+        dilation: 1,
     },
     V3BlockCfg {
         in_ch: 40,
@@ -776,6 +809,7 @@ const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
         use_se: true,
         use_hs: true,
         stride: 1,
+        dilation: 1,
     },
     V3BlockCfg {
         in_ch: 40,
@@ -785,6 +819,7 @@ const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
         use_se: true,
         use_hs: true,
         stride: 1,
+        dilation: 1,
     },
     V3BlockCfg {
         in_ch: 48,
@@ -794,6 +829,7 @@ const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
         use_se: true,
         use_hs: true,
         stride: 1,
+        dilation: 1,
     },
     V3BlockCfg {
         in_ch: 48,
@@ -803,6 +839,7 @@ const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
         use_se: true,
         use_hs: true,
         stride: 2,
+        dilation: 1,
     },
     V3BlockCfg {
         in_ch: 96,
@@ -812,6 +849,7 @@ const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
         use_se: true,
         use_hs: true,
         stride: 1,
+        dilation: 1,
     },
     V3BlockCfg {
         in_ch: 96,
@@ -821,8 +859,129 @@ const MOBILENET_V3_SMALL_CFG: [V3BlockCfg; 11] = [
         use_se: true,
         use_hs: true,
         stride: 1,
+        dilation: 1,
     },
 ];
+
+// #1146: MobileNetV3-Large block configuration. Mirrors torchvision's
+// `_mobilenet_v3_conf("mobilenet_v3_large", dilated=False)` exactly
+// (15 inverted-residual blocks; classification config has all dilations
+// = 1). The dilated variant for segmentation uses [`mobilenet_v3_large_cfg_dilated`]
+// which switches blocks 11..14 (zero-indexed within the block list, i.e.
+// V3-Large `features.12..14` after the stem) to dilation=2.
+const MOBILENET_V3_LARGE_CFG: [V3BlockCfg; 15] = [
+    // 0: 16→16,  k3, exp=16,  SE=F, HS=F, s=1
+    V3BlockCfg {
+        in_ch: 16, kernel: 3, expanded: 16, out_ch: 16,
+        use_se: false, use_hs: false, stride: 1, dilation: 1,
+    },
+    // 1: 16→24,  k3, exp=64,  SE=F, HS=F, s=2
+    V3BlockCfg {
+        in_ch: 16, kernel: 3, expanded: 64, out_ch: 24,
+        use_se: false, use_hs: false, stride: 2, dilation: 1,
+    },
+    // 2: 24→24,  k3, exp=72,  SE=F, HS=F, s=1
+    V3BlockCfg {
+        in_ch: 24, kernel: 3, expanded: 72, out_ch: 24,
+        use_se: false, use_hs: false, stride: 1, dilation: 1,
+    },
+    // 3: 24→40,  k5, exp=72,  SE=T, HS=F, s=2
+    V3BlockCfg {
+        in_ch: 24, kernel: 5, expanded: 72, out_ch: 40,
+        use_se: true,  use_hs: false, stride: 2, dilation: 1,
+    },
+    // 4: 40→40,  k5, exp=120, SE=T, HS=F, s=1  ← LRASPP "low" tap (after this)
+    V3BlockCfg {
+        in_ch: 40, kernel: 5, expanded: 120, out_ch: 40,
+        use_se: true,  use_hs: false, stride: 1, dilation: 1,
+    },
+    // 5: 40→40,  k5, exp=120, SE=T, HS=F, s=1
+    V3BlockCfg {
+        in_ch: 40, kernel: 5, expanded: 120, out_ch: 40,
+        use_se: true,  use_hs: false, stride: 1, dilation: 1,
+    },
+    // 6: 40→80,  k3, exp=240, SE=F, HS=T, s=2
+    V3BlockCfg {
+        in_ch: 40, kernel: 3, expanded: 240, out_ch: 80,
+        use_se: false, use_hs: true,  stride: 2, dilation: 1,
+    },
+    // 7: 80→80,  k3, exp=200, SE=F, HS=T, s=1
+    V3BlockCfg {
+        in_ch: 80, kernel: 3, expanded: 200, out_ch: 80,
+        use_se: false, use_hs: true,  stride: 1, dilation: 1,
+    },
+    // 8: 80→80,  k3, exp=184, SE=F, HS=T, s=1
+    V3BlockCfg {
+        in_ch: 80, kernel: 3, expanded: 184, out_ch: 80,
+        use_se: false, use_hs: true,  stride: 1, dilation: 1,
+    },
+    // 9: 80→80,  k3, exp=184, SE=F, HS=T, s=1
+    V3BlockCfg {
+        in_ch: 80, kernel: 3, expanded: 184, out_ch: 80,
+        use_se: false, use_hs: true,  stride: 1, dilation: 1,
+    },
+    // 10: 80→112, k3, exp=480, SE=T, HS=T, s=1
+    V3BlockCfg {
+        in_ch: 80, kernel: 3, expanded: 480, out_ch: 112,
+        use_se: true,  use_hs: true,  stride: 1, dilation: 1,
+    },
+    // 11: 112→112, k3, exp=672, SE=T, HS=T, s=1
+    V3BlockCfg {
+        in_ch: 112, kernel: 3, expanded: 672, out_ch: 112,
+        use_se: true,  use_hs: true,  stride: 1, dilation: 1,
+    },
+    // 12: 112→160, k5, exp=672, SE=T, HS=T, s=2 (dilated variant: s=1, dil=2)
+    V3BlockCfg {
+        in_ch: 112, kernel: 5, expanded: 672, out_ch: 160,
+        use_se: true,  use_hs: true,  stride: 2, dilation: 1,
+    },
+    // 13: 160→160, k5, exp=960, SE=T, HS=T, s=1 (dilated variant: dil=2)
+    V3BlockCfg {
+        in_ch: 160, kernel: 5, expanded: 960, out_ch: 160,
+        use_se: true,  use_hs: true,  stride: 1, dilation: 1,
+    },
+    // 14: 160→160, k5, exp=960, SE=T, HS=T, s=1 (dilated variant: dil=2)
+    V3BlockCfg {
+        in_ch: 160, kernel: 5, expanded: 960, out_ch: 160,
+        use_se: true,  use_hs: true,  stride: 1, dilation: 1,
+    },
+];
+
+/// Build the dilated MobileNetV3-Large config table for segmentation.
+///
+/// Mirrors torchvision's `_mobilenet_v3_conf("mobilenet_v3_large",
+/// dilated=True)` EXACTLY:
+/// - Block 12: stride=2 (kept!), dilation=2 — input from block 11 stays at
+///   33×33 because the depthwise's effective stride is overridden to 1
+///   inside `V3InvertedResidual::new` whenever `dilation > 1`.
+///   `use_res_connect` uses the CONFIG stride, so it remains False
+///   (no residual across the stage boundary, matching torchvision).
+/// - Blocks 13..14: stride=1, dilation=2.
+///
+/// #1146 root cause: the previous mapping (which dropped block 12's
+/// stride to 1 and kept its dilation at 1) caused block 12's
+/// `use_res_connect` to become True (since stride==1 && in==out is FALSE
+/// because in=112, out=160, but… actually that's also False). The true
+/// divergence was the depthwise dilation: block 12 needs dilation=2 to
+/// keep its 5×5 kernel sampling at the right effective receptive field
+/// for the layer-after-C4 receptive-field budget. Without dilation=2 the
+/// per-output value differed enough that downstream block 13/14 (also
+/// affected) accumulated to ~1.0 max-abs drift, which the LRASPP head
+/// then compounded.
+fn mobilenet_v3_large_cfg_dilated() -> [V3BlockCfg; 15] {
+    let mut cfg = MOBILENET_V3_LARGE_CFG;
+    // Block 12: keep stride=2 (config-level). Dilation=2; the
+    // V3InvertedResidual constructor below forces the depthwise's
+    // effective stride to 1 when dilation>1 (mirroring torchvision's
+    // `stride = 1 if cnf.dilation > 1 else cnf.stride`).
+    cfg[12].dilation = 2;
+    // Blocks 13..14: dilation=2 (their stride was already 1, so no
+    // effective-stride override is needed; but the dilation flag still
+    // enlarges the receptive field).
+    cfg[13].dilation = 2;
+    cfg[14].dilation = 2;
+    cfg
+}
 
 /// V3 last-stage head channel count is computed as `6 * last_block_out_ch`
 /// (96 in V3-Small) = 576. The last_channel before classifier is 1024.
@@ -866,12 +1025,24 @@ impl<T: Float> V3InvertedResidual<T> {
                 Some(act_kind),
             )?)
         };
-        let depthwise = ConvBnAct::new(
+        // Depthwise convolution. #1146:
+        //   * Padding is `(kernel / 2) * dilation` so the spatial dims
+        //     are preserved when dilation > 1 (matching torchvision's
+        //     `Conv2dNormActivation` auto-padding).
+        //   * Effective stride: torchvision's `InvertedResidual.__init__`
+        //     forces `stride = 1 if cnf.dilation > 1 else cnf.stride`.
+        //     This is how the dilated stages avoid downsampling while
+        //     still carrying their CONFIG stride flag (which feeds into
+        //     `use_res_connect` below).
+        let pad = (cfg.kernel / 2) * cfg.dilation;
+        let effective_stride = if cfg.dilation > 1 { 1 } else { cfg.stride };
+        let depthwise = ConvBnAct::new_with_dilation(
             cfg.expanded,
             cfg.expanded,
             cfg.kernel,
-            cfg.stride,
-            cfg.kernel / 2,
+            effective_stride,
+            pad,
+            cfg.dilation,
             cfg.expanded, // depthwise
             V3_BN_EPS,
             V3_BN_MOM,
@@ -1258,6 +1429,316 @@ impl<T: Float> crate::models::feature_extractor::IntermediateFeatures<T> for Mob
         names.push("classifier".to_string());
         names
     }
+}
+
+// ===========================================================================
+// MobileNetV3-Large (#1146)
+// ===========================================================================
+//
+// Same building blocks as V3-Small but with the 15-entry config table.
+// torchvision's `mobilenet_v3_large`:
+//   features.0:    stem (Conv2dNormActivation 3→16, k=3, s=2, HardSwish)
+//   features.1..15: 15 inverted-residual blocks (config above)
+//   features.16:   head (Conv2dNormActivation 160→960, k=1, HardSwish)
+//   avgpool: AdaptiveAvgPool2d(1)
+//   classifier: Sequential[Linear(960, 1280), HardSwish, Dropout, Linear(1280, num_classes)]
+//
+// The `forward_features(input) → (low, high)` accessor returns the
+// activations after block-index 4 (40-ch low, stride 8) and after the
+// final head-conv at index 16 (960-ch high, stride 16 in the dilated
+// variant, stride 32 in the classification variant). LRASPP consumes
+// these two.
+
+/// V3-Large head channel count is computed as `6 * last_block_out_ch`
+/// (160 in V3-Large) = 960.
+const V3_LARGE_HEAD_CHANNEL: usize = 960;
+/// Width of the post-pool linear bottleneck before the classifier.
+const V3_LARGE_LAST_CHANNEL: usize = 1280;
+
+/// Per-block diagnostic snapshot from [`MobileNetV3Large::forward_with_block_dumps`]
+/// (#1146). Holds the stem output, every InvertedResidual block output,
+/// and the head-conv output. Consumed by `examples/probe_lraspp_stages.rs`.
+pub struct MobileNetV3LargeStaged<T: Float> {
+    pub stem: Tensor<T>,
+    pub blocks: Vec<Tensor<T>>,
+    pub head_conv: Tensor<T>,
+}
+
+/// MobileNetV3-Large (torchvision `mobilenet_v3_large`).
+///
+/// #1146: also acts as the dilated segmentation backbone for LRASPP when
+/// constructed via [`Self::new_dilated`].
+pub struct MobileNetV3Large<T: Float> {
+    stem: ConvBnAct<T>,
+    blocks: Vec<V3InvertedResidual<T>>,
+    head: ConvBnAct<T>,
+    avgpool: AdaptiveAvgPool2d,
+    classifier_0: Linear<T>,
+    classifier_3: Linear<T>,
+    training: bool,
+}
+
+impl<T: Float> MobileNetV3Large<T> {
+    /// Construct a MobileNetV3-Large with the given output class count
+    /// (standard `mobilenet_v3_large` config — no dilated blocks).
+    pub fn new(num_classes: usize) -> FerrotorchResult<Self> {
+        Self::build(num_classes, &MOBILENET_V3_LARGE_CFG)
+    }
+
+    /// Construct a MobileNetV3-Large with the **dilated** segmentation
+    /// config (`replace_stride_with_dilation=[True, True, True]`). This
+    /// matches torchvision's `mobilenet_v3_large(weights=...,
+    /// dilated=True)` exactly — only blocks 12..14 differ from the
+    /// classification variant.
+    ///
+    /// The classifier (`classifier_0`, `classifier_3`) is still
+    /// constructed so the parameter layout matches the torchvision
+    /// `mobilenet_v3_large(dilated=True)` checkpoint structurally; the
+    /// LRASPP wrapper simply does not invoke it on the forward path.
+    pub fn new_dilated(num_classes: usize) -> FerrotorchResult<Self> {
+        Self::build(num_classes, &mobilenet_v3_large_cfg_dilated())
+    }
+
+    fn build(num_classes: usize, cfg_table: &[V3BlockCfg; 15]) -> FerrotorchResult<Self> {
+        let stem = ConvBnAct::new(
+            3,
+            16,
+            3,
+            2,
+            1,
+            1,
+            V3_BN_EPS,
+            V3_BN_MOM,
+            Some(ActivationKind::HardSwish),
+        )?;
+        let mut blocks: Vec<V3InvertedResidual<T>> = Vec::new();
+        for cfg in cfg_table.iter() {
+            blocks.push(V3InvertedResidual::new(*cfg)?);
+        }
+        let head = ConvBnAct::new(
+            160,
+            V3_LARGE_HEAD_CHANNEL,
+            1,
+            1,
+            0,
+            1,
+            V3_BN_EPS,
+            V3_BN_MOM,
+            Some(ActivationKind::HardSwish),
+        )?;
+        let avgpool = AdaptiveAvgPool2d::new((1, 1));
+        let classifier_0 = Linear::new(V3_LARGE_HEAD_CHANNEL, V3_LARGE_LAST_CHANNEL, true)?;
+        let classifier_3 = Linear::new(V3_LARGE_LAST_CHANNEL, num_classes, true)?;
+        Ok(Self {
+            stem,
+            blocks,
+            head,
+            avgpool,
+            classifier_0,
+            classifier_3,
+            training: true,
+        })
+    }
+
+    pub fn num_parameters(&self) -> usize {
+        self.parameters().iter().map(|p| p.numel()).sum()
+    }
+
+    fn head_index(&self) -> usize {
+        1 + self.blocks.len()
+    }
+
+    /// Per-block diagnostic forward (#1146). Returns the stem output,
+    /// every InvertedResidual block output, and the head-conv output.
+    /// Used by `examples/probe_lraspp_stages.rs` to localize parity
+    /// failures by stage.
+    pub fn forward_with_block_dumps(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<MobileNetV3LargeStaged<T>> {
+        let mut blocks_out: Vec<Tensor<T>> = Vec::with_capacity(self.blocks.len());
+        let stem = self.stem.forward(input)?;
+        let mut x = stem.clone();
+        for block in &self.blocks {
+            x = block.forward(&x)?;
+            blocks_out.push(x.clone());
+        }
+        let head_conv = self.head.forward(&x)?;
+        Ok(MobileNetV3LargeStaged {
+            stem,
+            blocks: blocks_out,
+            head_conv,
+        })
+    }
+
+    /// Extract the (low, high) feature pair used by LRASPP (#1146).
+    ///
+    /// torchvision's `lraspp_mobilenet_v3_large` wraps the backbone in
+    /// `IntermediateLayerGetter({"4": "low", "16": "high"})`. The keys
+    /// `"4"` and `"16"` refer to the **child indices of the features
+    /// Sequential** (i.e. `features[4]` and `features[16]`). Concretely:
+    ///
+    /// - `features[0]`  = stem (`Conv2dNormActivation`)
+    /// - `features[1..15]` = the 15 inverted-residual blocks
+    /// - `features[16]` = final 1×1 head conv (`Conv2dNormActivation`)
+    ///
+    /// So `features[4]` is the **4th** InvertedResidual block (`blocks[3]`
+    /// in our 0-indexed `Vec<V3InvertedResidual>`), and `features[16]`
+    /// is the head conv output.
+    ///
+    /// - `low` ← activation after `blocks[3]` (40 channels, stride 8 in
+    ///   both classification and dilated variants — block 3's stride=2
+    ///   takes us from stride 4 to stride 8).
+    /// - `high` ← activation after the head conv (`features[16]`). 960
+    ///   channels. Stride is 16 in the dilated variant.
+    ///
+    /// #1146 root-cause #2: an earlier draft tapped `blocks[4]` (the
+    /// SECOND 40-channel block) instead of `blocks[3]` — both have
+    /// matching shape `[B, 40, H/8, W/8]` so the shape check did not
+    /// detect the off-by-one. The per-block parity probe surfaced the
+    /// mismatch (block 3 matched torchvision's "low" tap; block 4 did not).
+    pub fn forward_low_high(
+        &self,
+        input: &Tensor<T>,
+    ) -> FerrotorchResult<(Tensor<T>, Tensor<T>)> {
+        let mut x = self.stem.forward(input)?;
+        let mut low: Option<Tensor<T>> = None;
+        for (i, block) in self.blocks.iter().enumerate() {
+            x = block.forward(&x)?;
+            // `features[4]` = blocks[3] (see doc above).
+            if i == 3 {
+                low = Some(x.clone());
+            }
+        }
+        let high = self.head.forward(&x)?;
+        let low = low.ok_or_else(|| ferrotorch_core::FerrotorchError::Internal {
+            message: "MobileNetV3Large::forward_low_high: failed to capture features[4] tap"
+                .into(),
+        })?;
+        Ok((low, high))
+    }
+}
+
+impl<T: Float> Module<T> for MobileNetV3Large<T> {
+    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let mut x = self.stem.forward(input)?;
+        for block in &self.blocks {
+            x = block.forward(&x)?;
+        }
+        let x = self.head.forward(&x)?;
+        let x = Module::<T>::forward(&self.avgpool, &x)?;
+        let batch = x.shape()[0];
+        let features = x.numel() / batch;
+        let x = reshape(&x, &[batch as isize, features as isize])?;
+        let x = self.classifier_0.forward(&x)?;
+        let x = HardSwish::new().forward(&x)?;
+        self.classifier_3.forward(&x)
+    }
+
+    fn parameters(&self) -> Vec<&Parameter<T>> {
+        let mut p = Vec::new();
+        p.extend(self.stem.parameters());
+        for b in &self.blocks {
+            p.extend(b.parameters());
+        }
+        p.extend(self.head.parameters());
+        p.extend(self.classifier_0.parameters());
+        p.extend(self.classifier_3.parameters());
+        p
+    }
+
+    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+        let mut p = Vec::new();
+        p.extend(self.stem.parameters_mut());
+        for b in &mut self.blocks {
+            p.extend(b.parameters_mut());
+        }
+        p.extend(self.head.parameters_mut());
+        p.extend(self.classifier_0.parameters_mut());
+        p.extend(self.classifier_3.parameters_mut());
+        p
+    }
+
+    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+        let mut p = Vec::new();
+        for (n, param) in self.stem.named_parameters() {
+            p.push((format!("features.0.{n}"), param));
+        }
+        for (i, block) in self.blocks.iter().enumerate() {
+            for (n, param) in block.named_parameters() {
+                p.push((format!("features.{}.{n}", i + 1), param));
+            }
+        }
+        let head_idx = self.head_index();
+        for (n, param) in self.head.named_parameters() {
+            p.push((format!("features.{head_idx}.{n}"), param));
+        }
+        for (n, param) in self.classifier_0.named_parameters() {
+            p.push((format!("classifier.0.{n}"), param));
+        }
+        for (n, param) in self.classifier_3.named_parameters() {
+            p.push((format!("classifier.3.{n}"), param));
+        }
+        p
+    }
+
+    fn children(&self) -> Vec<&dyn Module<T>> {
+        let mut out: Vec<&dyn Module<T>> = vec![&self.stem];
+        for b in &self.blocks {
+            out.push(b);
+        }
+        out.push(&self.head);
+        out.push(&self.avgpool);
+        out.push(&self.classifier_0);
+        out.push(&self.classifier_3);
+        out
+    }
+
+    fn named_children(&self) -> Vec<(String, &dyn Module<T>)> {
+        let mut out: Vec<(String, &dyn Module<T>)> =
+            vec![("features.0".to_string(), &self.stem as &dyn Module<T>)];
+        for (i, block) in self.blocks.iter().enumerate() {
+            out.push((format!("features.{}", i + 1), block));
+        }
+        let head_idx = self.head_index();
+        out.push((format!("features.{head_idx}"), &self.head));
+        out.push(("classifier.0".to_string(), &self.classifier_0));
+        out.push(("classifier.3".to_string(), &self.classifier_3));
+        out
+    }
+
+    fn train(&mut self) {
+        self.training = true;
+        self.stem.train();
+        for b in &mut self.blocks {
+            b.train();
+        }
+        self.head.train();
+    }
+    fn eval(&mut self) {
+        self.training = false;
+        self.stem.eval();
+        for b in &mut self.blocks {
+            b.eval();
+        }
+        self.head.eval();
+    }
+    fn is_training(&self) -> bool {
+        self.training
+    }
+}
+
+/// Convenience constructor for MobileNetV3-Large.
+pub fn mobilenet_v3_large<T: Float>(num_classes: usize) -> FerrotorchResult<MobileNetV3Large<T>> {
+    MobileNetV3Large::new(num_classes)
+}
+
+/// Convenience constructor for the dilated MobileNetV3-Large backbone
+/// used by LRASPP segmentation (#1146).
+pub fn mobilenet_v3_large_dilated<T: Float>(
+    num_classes: usize,
+) -> FerrotorchResult<MobileNetV3Large<T>> {
+    MobileNetV3Large::new_dilated(num_classes)
 }
 
 // ===========================================================================

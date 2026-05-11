@@ -980,6 +980,94 @@ def map_fcn_keys(
     return out, used_tv, filled_ft, intentional_drop_tv
 
 
+def map_lraspp_keys(
+    tv_sd: dict[str, torch.Tensor],
+    ft_keys: dict[str, list],
+) -> tuple[dict[str, torch.Tensor], set[str], set[str], set[str]]:
+    """Map LRASPP MobileNetV3-Large state_dict to ferrotorch keys (#1146).
+
+    torchvision's `lraspp_mobilenet_v3_large` wraps the backbone in
+    `IntermediateLayerGetter({"4": "low", "16": "high"})`, which strips
+    the `features.` indirection: torchvision keys are
+    `backbone.<i>.{...}` for i in 0..16 (and the classifier head
+    skipped entirely). ferrotorch keeps the `backbone.features.<i>.{...}`
+    layout exposed by `MobileNetV3Large::named_parameters()`, so we
+    re-insert the missing `features.` segment.
+
+    NO INTENTIONAL DROPS — every torchvision key MUST be either mapped
+    or covered by the BN-stat handling. The FPN-bias-drop bug from
+    #1141 was a silent-drop failure mode; this mapper hard-fails if
+    any torchvision key is left dangling.
+    """
+    out: dict[str, torch.Tensor] = {}
+    used_tv: set[str] = set()
+    filled_ft: set[str] = set()
+    intentional_drop_tv: set[str] = set()
+
+    def put(ft_k: str, tv_k: str, kind: str) -> None:
+        if tv_k not in tv_sd:
+            raise SystemExit(f"lraspp: torchvision key '{tv_k}' missing")
+        if kind == "param":
+            _check_shape(ft_k, tv_sd[tv_k], ft_keys[ft_k])
+            filled_ft.add(ft_k)
+        out[ft_k] = tv_sd[tv_k]
+        used_tv.add(tv_k)
+
+    # Backbone (MobileNetV3-Large dilated). 17 indices: 0=stem (3-children
+    # Conv2dNormActivation), 1..15 = InvertedResidual, 16 = head conv.
+    # ferrotorch retains `features.` whereas torchvision drops it via
+    # IntermediateLayerGetter — re-insert.
+    backbone_tv_keys = [k for k in tv_sd if k.startswith("backbone.")]
+    for tv_k in backbone_tv_keys:
+        # Strip the leading "backbone." then re-prefix with
+        # "backbone.features.".
+        suffix = tv_k[len("backbone."):]
+        ft_k = f"backbone.features.{suffix}"
+        # Sort by kind: BN stats / num_batches_tracked are buffers; the
+        # rest are params.
+        if suffix.endswith("num_batches_tracked"):
+            # BN num_batches_tracked is not exposed as a ferrotorch
+            # parameter — record as used so the coverage check doesn't
+            # complain. Skip emitting it (matches the FCN/DeepLabV3
+            # pattern via the trailing nbt sweep).
+            used_tv.add(tv_k)
+            continue
+        if suffix.endswith("running_mean") or suffix.endswith("running_var"):
+            kind = "buffer"
+        else:
+            kind = "param"
+            if ft_k not in ft_keys:
+                raise SystemExit(
+                    f"lraspp: ferrotorch key '{ft_k}' not found for "
+                    f"torchvision '{tv_k}' (shape {list(tv_sd[tv_k].shape)})"
+                )
+        put(ft_k, tv_k, kind)
+
+    # LRASPP head (`classifier.*` on both sides, identical structure).
+    head_pairs = [
+        ("classifier.cbr.0.weight",          "classifier.cbr.0.weight",          "param"),
+        ("classifier.cbr.1.weight",          "classifier.cbr.1.weight",          "param"),
+        ("classifier.cbr.1.bias",            "classifier.cbr.1.bias",            "param"),
+        ("classifier.cbr.1.running_mean",    "classifier.cbr.1.running_mean",    "buffer"),
+        ("classifier.cbr.1.running_var",     "classifier.cbr.1.running_var",     "buffer"),
+        ("classifier.scale.1.weight",        "classifier.scale.1.weight",        "param"),
+        ("classifier.low_classifier.weight", "classifier.low_classifier.weight", "param"),
+        ("classifier.low_classifier.bias",   "classifier.low_classifier.bias",   "param"),
+        ("classifier.high_classifier.weight","classifier.high_classifier.weight","param"),
+        ("classifier.high_classifier.bias",  "classifier.high_classifier.bias",  "param"),
+    ]
+    for ft_k, tv_k, kind in head_pairs:
+        put(ft_k, tv_k, kind)
+
+    # Sweep up any remaining num_batches_tracked under classifier.* (the
+    # cbr BN has one — also marked used via the explicit pair above? No:
+    # we listed running_mean/var, NOT num_batches_tracked. Mark it).
+    for nbt_key in [k for k in tv_sd if k.endswith("num_batches_tracked")]:
+        used_tv.add(nbt_key)
+
+    return out, used_tv, filled_ft, intentional_drop_tv
+
+
 # ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
@@ -1082,6 +1170,27 @@ MODELS: dict[str, dict] = {
             "detector: single anchor/location + centerness branch, GroupNorm "
             "in 4-conv shared trunks for both class and regression heads, "
             "sigmoid scoring gated by centerness."
+        ),
+    ),
+    "lraspp_mobilenet_v3_large": dict(
+        factory=lambda: tv_segmentation.lraspp_mobilenet_v3_large(
+            weights="COCO_WITH_VOC_LABELS_V1"
+        ),
+        weights_enum="COCO_WITH_VOC_LABELS_V1",
+        num_classes=21,
+        mapper=map_lraspp_keys,
+        # No intentional drops: every torchvision key maps. The
+        # `IntermediateLayerGetter` flattening (backbone.X vs
+        # backbone.features.X) is handled inside the mapper, so we
+        # require strict coverage.
+        has_intentional_drops=False,
+        param_count=3_221_538,
+        description=(
+            "LRASPP with MobileNetV3-Large dilated backbone, pretrained on a "
+            "COCO subset with Pascal VOC labels (21 classes). Re-keyed from "
+            "torchvision 0.21 `lraspp_mobilenet_v3_large` "
+            "(`LRASPP_MobileNet_V3_Large_Weights.COCO_WITH_VOC_LABELS_V1`). "
+            "#1146 — Phase A.4 of real-artifact-driven development."
         ),
     ),
     "keypointrcnn_resnet50_fpn": dict(

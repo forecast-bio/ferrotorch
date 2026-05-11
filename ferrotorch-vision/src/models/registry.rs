@@ -313,6 +313,20 @@ fn default_registry() -> ModelRegistry<f32> {
         }),
     );
 
+    // #1146: LRASPP with MobileNetV3-Large dilated backbone for semantic
+    // segmentation. The COCO_WITH_VOC_LABELS_V1 pretrained checkpoint
+    // targets 21 classes (Pascal VOC label set: background + 20
+    // foreground). Pretrained weights pinned to
+    // `ferrotorch/lraspp_mobilenet_v3_large` on HF.
+    registry.register_model(
+        "lraspp_mobilenet_v3_large",
+        Box::new(|pretrained, num_classes| {
+            maybe_load_pretrained(pretrained, "lraspp_mobilenet_v3_large", || {
+                super::segmentation::lraspp_mobilenet_v3_large::<f32>(num_classes)
+            })
+        }),
+    );
+
     // #1099: SSD300 with VGG-16 backbone for object detection.
     // `num_classes` includes background (index 0); COCO default is 91.
     // Pretrained weights are not yet published to ferrotorch-hub;
@@ -563,6 +577,7 @@ mod tests {
             "retinanet_resnet50_fpn",
             "fcos_resnet50_fpn",
             "keypointrcnn_resnet50_fpn",
+            "lraspp_mobilenet_v3_large",
         ];
         for name in canonical {
             let info = ferrotorch_hub::registry::get_model_info(name);

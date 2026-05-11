@@ -18,7 +18,9 @@ use ferrotorch_vision::models::detection::{
     fasterrcnn_resnet50_fpn, fcos_resnet50_fpn, keypointrcnn_resnet50_fpn, maskrcnn_resnet50_fpn,
     retinanet_resnet50_fpn, ssd300_vgg16,
 };
-use ferrotorch_vision::models::segmentation::{deeplabv3_resnet50, fcn_resnet50};
+use ferrotorch_vision::models::segmentation::{
+    deeplabv3_resnet50, fcn_resnet50, lraspp_mobilenet_v3_large,
+};
 
 fn dump<T: ferrotorch_core::Float, M: Module<T>>(model: &M) -> serde_json::Value {
     let params: Vec<_> = model
@@ -51,6 +53,10 @@ fn main() {
     let fcos = fcos_resnet50_fpn::<f32>(91).expect("fcos_resnet50_fpn build");
     // #1145: Keypoint R-CNN COCO_V1 — 2 classes (bg + person), 17 keypoints.
     let krcnn = keypointrcnn_resnet50_fpn::<f32>().expect("keypointrcnn_resnet50_fpn build");
+    // #1146: LRASPP MobileNetV3-Large COCO_WITH_VOC_LABELS_V1 — 21 classes
+    // (Pascal VOC background + 20 foreground).
+    let lraspp =
+        lraspp_mobilenet_v3_large::<f32>(21).expect("lraspp_mobilenet_v3_large build");
 
     let out = serde_json::json!({
         "ssd300_vgg16": dump(&ssd),
@@ -61,6 +67,7 @@ fn main() {
         "retinanet_resnet50_fpn": dump(&retina),
         "fcos_resnet50_fpn": dump(&fcos),
         "keypointrcnn_resnet50_fpn": dump(&krcnn),
+        "lraspp_mobilenet_v3_large": dump(&lraspp),
     });
     println!("{}", serde_json::to_string_pretty(&out).unwrap());
 }

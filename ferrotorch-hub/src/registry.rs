@@ -260,6 +260,21 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::SafeTensors,
         num_parameters: 35_322_218,
     },
+    // #1146: LRASPP MobileNetV3-Large dilated backbone for lightweight
+    // semantic segmentation. Pinned from torchvision 0.21
+    // `LRASPP_MobileNet_V3_Large_Weights.COCO_WITH_VOC_LABELS_V1`
+    // (21 classes — Pascal VOC label set). Mapped via
+    // `scripts/pin_pretrained_weights.py::map_lraspp_keys` with 0 drops
+    // (the IntermediateLayerGetter `backbone.X` ↔ `backbone.features.X`
+    // remap is handled inside the mapper).
+    ModelInfo {
+        name: "lraspp_mobilenet_v3_large",
+        description: "LRASPP with MobileNetV3-Large dilated backbone for lightweight semantic segmentation (#1146, COCO+VOC labels)",
+        weights_url: "https://huggingface.co/ferrotorch/lraspp_mobilenet_v3_large/resolve/main/model.safetensors",
+        weights_sha256: "00c25a1d022772ca379a48bccdd052829a5d18535a4fff49623a516ef500a159",
+        format: WeightsFormat::SafeTensors,
+        num_parameters: 3_221_538,
+    },
     // #1130: SSD300 with VGG-16 backbone for object detection.
     // Pinned from torchvision 0.21 `SSD300_VGG16_Weights.COCO_V1`.
     ModelInfo {
@@ -407,6 +422,7 @@ mod tests {
             "fcn_resnet50",
             "retinanet_resnet50_fpn",
             "fcos_resnet50_fpn",
+            "lraspp_mobilenet_v3_large",
         ];
         for name in expected {
             assert!(

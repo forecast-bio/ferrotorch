@@ -29,13 +29,17 @@ pub use inception::{
     BasicConv2d as InceptionBasicConv2d, InceptionA, InceptionB, InceptionC, InceptionD,
     InceptionE, InceptionV3, inception_v3,
 };
-pub use mobilenet::{MobileNetV2, MobileNetV3Small, mobilenet_v2, mobilenet_v3_small};
+pub use mobilenet::{
+    MobileNetV2, MobileNetV3Large, MobileNetV3Small, mobilenet_v2, mobilenet_v3_large,
+    mobilenet_v3_large_dilated, mobilenet_v3_small,
+};
 pub use registry::{
     ModelConstructor, ModelRegistry, REGISTRY, get_model, list_models, register_model,
 };
 pub use resnet::{BasicBlock, Bottleneck, ResNet, resnet18, resnet34, resnet50};
 pub use segmentation::{
-    Aspp, DeepLabV3, DeepLabV3Head, Fcn, FcnHead, ResNet50Dilated, deeplabv3_resnet50, fcn_resnet50,
+    Aspp, DeepLabV3, DeepLabV3Head, Fcn, FcnHead, Lraspp, LrasppHead, ResNet50Dilated,
+    deeplabv3_resnet50, fcn_resnet50, lraspp_mobilenet_v3_large,
 };
 pub use swin::{SwinBlock, SwinTransformer, swin_tiny};
 pub use unet::{UNet, unet};

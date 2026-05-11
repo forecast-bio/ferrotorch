@@ -67,8 +67,10 @@ from torchvision.models.detection import (
 from torchvision.models.segmentation import (
     DeepLabV3_ResNet50_Weights,
     FCN_ResNet50_Weights,
+    LRASPP_MobileNet_V3_Large_Weights,
     deeplabv3_resnet50,
     fcn_resnet50,
+    lraspp_mobilenet_v3_large,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -187,6 +189,15 @@ TOL = {
     ),
     "deeplabv3_resnet50": dict(abs_logit=1e-3, argmax_agree_pct=99.0),
     "fcn_resnet50": dict(abs_logit=1e-3, argmax_agree_pct=99.0),
+    # #1146: LRASPP MobileNetV3-Large — same criterion as the other
+    # segmentation models. The MobileNetV3 backbone is significantly
+    # lighter than ResNet-50 (3.2M vs 35M+ params) so f32 conv-accumulation
+    # drift is correspondingly smaller and the argmax floor stays at
+    # 99.0% (fcn/deeplab baseline). Slightly looser abs_logit (1e-2) is
+    # used as the fallback OR-criterion because LRASPP's two-branch
+    # (cbr + scale gate) head can amplify per-pixel logit drift even when
+    # argmax agreement is high.
+    "lraspp_mobilenet_v3_large": dict(abs_logit=1e-2, argmax_agree_pct=99.0),
 }
 
 
@@ -239,7 +250,7 @@ def preprocess(model: str, chw: torch.Tensor) -> torch.Tensor:
             padded[:, :, :out_h, :out_w] = normed
             return padded
         return normed
-    if model in ("deeplabv3_resnet50", "fcn_resnet50"):
+    if model in ("deeplabv3_resnet50", "fcn_resnet50", "lraspp_mobilenet_v3_large"):
         scale = 520.0 / min(h, w)
         out_h = round(h * scale)
         out_w = round(w * scale)
@@ -411,6 +422,16 @@ def torchvision_module_equivalent(
     if model_name == "fcn_resnet50":
         weights = FCN_ResNet50_Weights.COCO_WITH_VOC_LABELS_V1
         m = fcn_resnet50(weights=weights).to(DEVICE).eval()
+        with torch.no_grad():
+            out = m(input_bchw.to(DEVICE))["out"]
+        return out.detach().cpu().numpy().astype(np.float32)
+
+    if model_name == "lraspp_mobilenet_v3_large":
+        # #1146: LRASPP MobileNetV3-Large. Same `model(x)["out"]`
+        # extraction as fcn/deeplabv3 — the output is the dense
+        # `[B, num_classes, H, W]` logits tensor.
+        weights = LRASPP_MobileNet_V3_Large_Weights.COCO_WITH_VOC_LABELS_V1
+        m = lraspp_mobilenet_v3_large(weights=weights).to(DEVICE).eval()
         with torch.no_grad():
             out = m(input_bchw.to(DEVICE))["out"]
         return out.detach().cpu().numpy().astype(np.float32)
@@ -640,7 +661,11 @@ def verify_one(model_name: str, image_id: int, verbose: bool) -> CompareResult:
 
     # 4) Compare per-model.
     extra: dict = {}
-    if model_name in ("deeplabv3_resnet50", "fcn_resnet50"):
+    if model_name in (
+        "deeplabv3_resnet50",
+        "fcn_resnet50",
+        "lraspp_mobilenet_v3_large",
+    ):
         tol = TOL[model_name]
         max_abs, max_rel, _ = compare_arrays(rust_out, tv_out, tol["abs_logit"])
         if rust_out.shape == tv_out.shape:

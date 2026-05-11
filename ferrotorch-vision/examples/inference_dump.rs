@@ -87,6 +87,9 @@ fn num_classes_for(model: &str) -> Result<usize, String> {
         "maskrcnn_resnet50_fpn" => Ok(91),
         "deeplabv3_resnet50" => Ok(21),
         "fcn_resnet50" => Ok(21),
+        // #1146: LRASPP MobileNetV3-Large COCO_WITH_VOC_LABELS_V1 — 21
+        // Pascal VOC classes (background + 20 foreground).
+        "lraspp_mobilenet_v3_large" => Ok(21),
         // #1143: RetinaNet COCO_V1 uses 91 classes with no explicit background
         // (sigmoid scoring is per-class).
         "retinanet_resnet50_fpn" => Ok(91),
@@ -244,9 +247,11 @@ fn preprocess_for_model(model: &str, raw_chw: Tensor<f32>) -> FerrotorchResult<T
                 )
             }
         }
-        "deeplabv3_resnet50" | "fcn_resnet50" => {
+        "deeplabv3_resnet50" | "fcn_resnet50" | "lraspp_mobilenet_v3_large" => {
             // torchvision SemanticSegmentation: resize shorter side to 520,
-            // preserve aspect ratio.
+            // preserve aspect ratio. Same recipe for LRASPP (#1146 — the
+            // mobilenetv3 backbone needs identical normalization since it
+            // was trained on the same ImageNet statistics).
             let resize_size = 520.0_f64;
             let h = h_in as f64;
             let w = w_in as f64;
