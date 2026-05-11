@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
-"""Verify ferrotorch pretrained SD-1.5 VAE-decoder inference against the
-`diffusers` reference.
+"""Verify ferrotorch pretrained SD-1.5 diffusion sub-model inference
+against the `diffusers` reference.
 
 Companion to `scripts/verify_audio_encoder_inference.py` but for SD
 diffusion sub-models. For each pinned model in the `ferrotorch/*` HF
 org this script:
 
   1. Downloads the mirror's `config.json`, `model.safetensors`, and the
-     frozen parity probe (`_value_parity_latent.bin` and
-     `_value_parity_image.bin`) via `huggingface_hub`.
-  2. Invokes the Rust binary
+     frozen parity probe (for the VAE: `_value_parity_latent.bin` and
+     `_value_parity_image.bin`; for the UNet: the 4-tuple
+     `_value_parity_{noisy_latent,timestep,text_embedding,predicted_noise}.bin`)
+     via `huggingface_hub`.
+  2. Invokes the matching Rust example
      (`cargo run -p ferrotorch-diffusion --release --example
-       vae_decode_dump`) pointing `--latent` at the frozen latent and
-     `--model` at the ferrotorch repo (the example fetches
-     `config.json` + `model.safetensors` through `ferrotorch-hub`).
-  3. Reads the dumped `[1, 3, 512, 512]` f32 decoded image and compares
-     it elementwise against `_value_parity_image.bin`.
+       {vae_decode_dump|unet_predict_dump}`) wired against the frozen
+     inputs (the example fetches `config.json` + `model.safetensors`
+     through `ferrotorch-hub`).
+  3. Reads the dumped f32 reference (decoded image for VAE; predicted
+     noise for UNet) and compares it elementwise against the frozen
+     reference shipped by the mirror.
   4. Computes:
        - `cosine_sim` — `(rust @ tv) / (||rust|| * ||tv||)`
        - `max_abs`    — `max(abs(rust - tv))`
@@ -25,16 +28,17 @@ org this script:
 The PASS bar is `cosine_sim >= 0.999, max_abs <= 0.5`. Same floor as the
 other Phase-B real-artifact harnesses — the f32 accumulation noise
 between ferrotorch and diffusers running the same byte-for-byte weights
-sits well below 0.5 in decoder-output scale (which is roughly `[-1, 1]`).
+sits well below 0.5 in decoder-output / predicted-noise scale.
 
 Usage:
-  python3 scripts/verify_diffusion_inference.py [--models sd-v1-5-vae-decoder,...]
+  python3 scripts/verify_diffusion_inference.py [--models sd-v1-5-vae-decoder,sd-v1-5-unet]
                                                 [--quiet]
                                                 [--self-test]
 
-The Rust example must be pre-built (this script will also build it on
-first invocation):
+The Rust examples must be pre-built (this script will also build them
+on first invocation):
   cargo build -p ferrotorch-diffusion --release --example vae_decode_dump
+  cargo build -p ferrotorch-diffusion --release --example unet_predict_dump
 """
 
 from __future__ import annotations
@@ -62,9 +66,35 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # a different op-order through the conv / GroupNorm / attention stack.
 TOL: dict[str, dict[str, Any]] = {
     "sd-v1-5-vae-decoder": dict(
+        kind="vae",
         cosine_sim_min=0.999,
         max_abs=0.5,
-        image_shape=(1, 3, 512, 512),
+        ref_shape=(1, 3, 512, 512),
+        ref_file="_value_parity_image.bin",
+        rust_example="vae_decode_dump",
+        # Mirror files that must be downloaded for verification.
+        mirror_files=(
+            "config.json",
+            "model.safetensors",
+            "_value_parity_latent.bin",
+            "_value_parity_image.bin",
+        ),
+    ),
+    "sd-v1-5-unet": dict(
+        kind="unet",
+        cosine_sim_min=0.999,
+        max_abs=0.5,
+        ref_shape=(1, 4, 64, 64),
+        ref_file="_value_parity_predicted_noise.bin",
+        rust_example="unet_predict_dump",
+        mirror_files=(
+            "config.json",
+            "model.safetensors",
+            "_value_parity_noisy_latent.bin",
+            "_value_parity_timestep.bin",
+            "_value_parity_text_embedding.bin",
+            "_value_parity_predicted_noise.bin",
+        ),
     ),
 }
 
@@ -101,15 +131,11 @@ def read_dump_f32(path: Path) -> np.ndarray:
 
 def fetch_mirror(model_name: str) -> dict[str, Path]:
     """Download the mirror's files via huggingface_hub. Returns a map of
-    filename → local path."""
+    filename → local path. The per-model file list is read from
+    `TOL[model_name]["mirror_files"]`."""
     repo_id = f"ferrotorch/{model_name}"
     out: dict[str, Path] = {}
-    for fn in (
-        "config.json",
-        "model.safetensors",
-        "_value_parity_latent.bin",
-        "_value_parity_image.bin",
-    ):
+    for fn in TOL[model_name]["mirror_files"]:
         try:
             local = hf_hub_download(repo_id=repo_id, filename=fn)
         except Exception as e:  # noqa: BLE001
@@ -118,15 +144,39 @@ def fetch_mirror(model_name: str) -> dict[str, Path]:
     return out
 
 
-def run_rust_dump(model_name: str, latent_path: Path, output_bin: Path) -> dict[str, Any]:
-    """Invoke the Rust example and parse its stdout JSON verdict line."""
-    cmd = [
+def run_rust_dump(
+    model_name: str,
+    files: dict[str, Path],
+    output_bin: Path,
+) -> dict[str, Any]:
+    """Invoke the matching Rust example and parse its stdout JSON
+    verdict line.
+
+    The per-model branching reads `TOL[model_name]["kind"]` to decide
+    which example to run and which input flags to pass. VAE wires
+    `--latent <_value_parity_latent.bin>`; UNet wires
+    `--latent <_value_parity_noisy_latent.bin>
+       --timestep <_value_parity_timestep.bin>
+       --text-embedding <_value_parity_text_embedding.bin>`.
+    """
+    tol = TOL[model_name]
+    example = tol["rust_example"]
+    cmd: list[str] = [
         "cargo", "run", "-p", "ferrotorch-diffusion", "--release",
-        "--example", "vae_decode_dump", "--",
+        "--example", example, "--",
         "--model", model_name,
-        "--latent", str(latent_path),
         "--output", str(output_bin),
     ]
+    if tol["kind"] == "vae":
+        cmd += ["--latent", str(files["_value_parity_latent.bin"])]
+    elif tol["kind"] == "unet":
+        cmd += [
+            "--latent", str(files["_value_parity_noisy_latent.bin"]),
+            "--timestep", str(files["_value_parity_timestep.bin"]),
+            "--text-embedding", str(files["_value_parity_text_embedding.bin"]),
+        ]
+    else:
+        raise RuntimeError(f"{model_name}: unknown kind {tol['kind']!r}")
     print(f"  running: {' '.join(cmd)}", flush=True)
     proc = subprocess.run(
         cmd, cwd=str(REPO_ROOT), check=False, capture_output=True, text=True,
@@ -176,23 +226,24 @@ def verify_one(name: str, quiet: bool) -> ModelVerdict:
     files = fetch_mirror(name)
     print(f"  cached: {sorted(p.name for p in files.values())}")
 
-    # -- 2. Read the reference decoded image. -----------------------------
-    ref = read_dump_f32(files["_value_parity_image.bin"])
-    expect_shape = tol["image_shape"]
+    # -- 2. Read the reference (decoded image for VAE, predicted noise
+    #       for UNet). ---------------------------------------------------
+    ref = read_dump_f32(files[tol["ref_file"]])
+    expect_shape = tol["ref_shape"]
     if ref.shape != expect_shape:
         return ModelVerdict(
             name=name, passed=False,
             summary=f"reference shape {ref.shape} != expected {expect_shape}",
         )
     print(
-        f"  reference decoded image: shape={list(ref.shape)} "
+        f"  reference {tol['ref_file']}: shape={list(ref.shape)} "
         f"||ref||={float(np.linalg.norm(ref)):.6f}",
         flush=True,
     )
 
     # -- 3. Run ferrotorch. -----------------------------------------------
     output_bin = CACHE_DIR / f"{name}_rust_dump.bin"
-    verdict = run_rust_dump(name, files["_value_parity_latent.bin"], output_bin)
+    verdict = run_rust_dump(name, files, output_bin)
     rust = read_dump_f32(output_bin)
     if rust.shape != ref.shape:
         return ModelVerdict(

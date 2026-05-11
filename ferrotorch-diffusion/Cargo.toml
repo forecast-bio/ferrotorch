@@ -33,3 +33,11 @@ tempfile = { workspace = true }
 [[example]]
 name = "vae_decode_dump"
 path = "examples/vae_decode_dump.rs"
+
+[[example]]
+name = "unet_predict_dump"
+path = "examples/unet_predict_dump.rs"
+
+[[example]]
+name = "unet_probe_dump"
+path = "examples/unet_probe_dump.rs"

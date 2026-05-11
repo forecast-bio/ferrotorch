@@ -15,6 +15,8 @@ use ferrotorch_nn::module::{Module, StateDict};
 use ferrotorch_serialize::load_safetensors;
 
 use crate::config::VaeDecoderConfig;
+use crate::unet::UNet2DConditionModel;
+use crate::unet_config::UNet2DConditionConfig;
 use crate::vae::VaeDecoder;
 
 /// Audit trail returned by [`load_vae_decoder`] / [`VaeDecoder::load_hf_state_dict`].
@@ -83,6 +85,90 @@ impl<T: Float> VaeDecoder<T> {
         self.load_state_dict(&remapped, strict)?;
         Ok(DropReport { dropped })
     }
+}
+
+// ---------------------------------------------------------------------------
+// UNet2DConditionModel loader
+// ---------------------------------------------------------------------------
+
+impl<T: Float> UNet2DConditionModel<T> {
+    /// Load a HuggingFace UNet state dict into this module.
+    ///
+    /// Accepts both:
+    ///   - bare-UNet layout (the pin script normalises to this form)
+    ///   - `unet.<rest>` prefix (full SD pipeline checkpoint)
+    ///
+    /// Any unrecognised key is recorded in the returned [`DropReport`]
+    /// (or surfaces as [`FerrotorchError::InvalidArgument`] in strict
+    /// mode).
+    ///
+    /// # Errors
+    ///
+    /// Forwards whatever each sub-module's `load_state_dict` returns
+    /// (shape mismatch / strict-mode missing key).
+    pub fn load_hf_state_dict(
+        &mut self,
+        hf_state: &StateDict<T>,
+        strict: bool,
+    ) -> FerrotorchResult<DropReport> {
+        let mut remapped: StateDict<T> = HashMap::with_capacity(hf_state.len());
+        let mut dropped: Vec<String> = Vec::new();
+        for (k, v) in hf_state {
+            let after_unet = k.strip_prefix("unet.").map_or_else(|| k.clone(), str::to_owned);
+            let is_unet_key = after_unet.starts_with("time_embedding.")
+                || after_unet.starts_with("conv_in.")
+                || after_unet.starts_with("down_blocks.")
+                || after_unet.starts_with("mid_block.")
+                || after_unet.starts_with("up_blocks.")
+                || after_unet.starts_with("conv_norm_out.")
+                || after_unet.starts_with("conv_out.");
+            if is_unet_key {
+                remapped.insert(after_unet, v.clone());
+                continue;
+            }
+            if strict {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "UNet2DConditionModel::load_hf_state_dict: key {k:?} is not under \
+                         a UNet prefix (with optional `unet.`) and strict mode is on."
+                    ),
+                });
+            }
+            dropped.push(k.clone());
+        }
+        dropped.sort();
+        self.load_state_dict(&remapped, strict)?;
+        Ok(DropReport { dropped })
+    }
+}
+
+/// Load a [`UNet2DConditionModel`] from a UNet
+/// `diffusion_pytorch_model.safetensors` file plus a parsed config.
+///
+/// `strict=false` is required when loading a full SD pipeline
+/// checkpoint (which carries `vae.*` / `text_encoder.*` keys); for a
+/// bare-UNet mirror (the form `pin_pretrained_diffusion_weights.py`
+/// uploads) `strict=true` is fine.
+///
+/// # Errors
+///
+/// Propagates safetensors parse errors, [`UNet2DConditionModel`]
+/// construction errors, and any per-key shape / strict-mode mismatch.
+pub fn load_unet<T: Float>(
+    weights_path: &Path,
+    cfg: UNet2DConditionConfig,
+    strict: bool,
+) -> FerrotorchResult<(UNet2DConditionModel<T>, DropReport)> {
+    let state =
+        load_safetensors::<T>(weights_path).map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!(
+                "load_unet: failed to decode safetensors {}: {e}",
+                weights_path.display()
+            ),
+        })?;
+    let mut unet = UNet2DConditionModel::<T>::new(cfg)?;
+    let report = unet.load_hf_state_dict(&state, strict)?;
+    Ok((unet, report))
 }
 
 /// Load a [`VaeDecoder`] from a VAE `diffusion_pytorch_model.safetensors`

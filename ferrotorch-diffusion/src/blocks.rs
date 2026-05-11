@@ -528,6 +528,92 @@ impl<T: Float> Module<T> for Upsample2D<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Downsample2D
+// ---------------------------------------------------------------------------
+
+/// Diffusers-style `Downsample2D` — a single `Conv2d(C, C, k=3, stride=2,
+/// pad=1, bias=True)`.
+///
+/// SD-1.5 uses `use_conv=True` and `padding=1`, so there is no separate
+/// pre-conv padding step. State-dict key: `conv.{weight,bias}`.
+#[derive(Debug)]
+pub struct Downsample2D<T: Float> {
+    /// Output conv (k=3, stride=2, pad=1).
+    pub conv: Conv2d<T>,
+    channels: usize,
+    training: bool,
+}
+
+impl<T: Float> Downsample2D<T> {
+    /// Build a randomly-initialized `Downsample2D` (`C -> C`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying [`FerrotorchError`] on bad conv config.
+    pub fn new(channels: usize) -> FerrotorchResult<Self> {
+        let conv = Conv2d::<T>::new(channels, channels, (3, 3), (2, 2), (1, 1), true)?;
+        Ok(Self {
+            conv,
+            channels,
+            training: false,
+        })
+    }
+}
+
+impl<T: Float> Module<T> for Downsample2D<T> {
+    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        if input.ndim() != 4 || input.shape()[1] != self.channels {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "Downsample2D::forward: expected [B, {}, H, W], got {:?}",
+                    self.channels,
+                    input.shape()
+                ),
+            });
+        }
+        self.conv.forward(input)
+    }
+    fn parameters(&self) -> Vec<&Parameter<T>> {
+        self.conv.parameters()
+    }
+    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+        self.conv.parameters_mut()
+    }
+    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+        self.conv
+            .named_parameters()
+            .into_iter()
+            .map(|(n, p)| (format!("conv.{n}"), p))
+            .collect()
+    }
+    fn train(&mut self) {
+        self.training = true;
+    }
+    fn eval(&mut self) {
+        self.training = false;
+    }
+    fn is_training(&self) -> bool {
+        self.training
+    }
+    fn load_state_dict(&mut self, state: &StateDict<T>, strict: bool) -> FerrotorchResult<()> {
+        let conv_sd: StateDict<T> = state
+            .iter()
+            .filter_map(|(k, v)| k.strip_prefix("conv.").map(|r| (r.to_string(), v.clone())))
+            .collect();
+        if strict {
+            for k in state.keys() {
+                if !k.starts_with("conv.") {
+                    return Err(FerrotorchError::InvalidArgument {
+                        message: format!("unexpected key in Downsample2D state_dict: \"{k}\""),
+                    });
+                }
+            }
+        }
+        self.conv.load_state_dict(&conv_sd, strict)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // UpDecoderBlock2D
 // ---------------------------------------------------------------------------
 

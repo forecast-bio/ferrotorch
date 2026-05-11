@@ -435,6 +435,39 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::SafeTensors,
         num_parameters: 49_490_199,
     },
+    // #1151: sd-v1-5-unet (runwayml/stable-diffusion-v1-5 unet/ subfolder)
+    // — second Stable-Diffusion sub-model pin (Phase B.3b). Full
+    // UNet2DConditionModel: time_embedding + conv_in 4 -> 320, four
+    // down-blocks (CrossAttnDownBlock2D × 3 + DownBlock2D),
+    // UNetMidBlock2DCrossAttn, four up-blocks (UpBlock2D +
+    // CrossAttnUpBlock2D × 3), conv_norm_out + conv_out 320 -> 4.
+    // ~860M-param noise predictor at the heart of SD-1.5 sampling.
+    // CreativeML Open RAIL-M licensed. Mirrored byte-for-byte from
+    // upstream — ferrotorch-diffusion's `UNet2DConditionModel`
+    // consumes the diffusers key layout natively, so no key remap is
+    // needed on the pin path. The pin script verifies every upstream
+    // key sits under one of the seven UNet top-level prefixes
+    // (`time_embedding. / conv_in. / down_blocks. / mid_block. /
+    // up_blocks. / conv_norm_out. / conv_out.`) and refuses to pin
+    // any architecture variant outside the SD-1.5 block alphabet. The
+    // mirror also ships
+    // `_value_parity_{noisy_latent,timestep,text_embedding,predicted_noise}.bin`
+    // — a frozen 4-tuple probe so the
+    // `scripts/verify_diffusion_inference.py` harness and the
+    // `conformance_pretrained_diffusion` cargo test can compare
+    // ferrotorch's predicted noise against a frozen `diffusers==0.38.0`
+    // reference forward pass without re-running it in CI. The probe
+    // uses a synthetic encoder_hidden_states (deterministic
+    // `randn(1, 77, 768)`) because the CLIP text encoder is not yet
+    // pinned (Phase B.3c).
+    ModelInfo {
+        name: "sd-v1-5-unet",
+        description: "Stable Diffusion 1.5 UNet (runwayml/stable-diffusion-v1-5 unet/): 860M-param noise predictor (4 down-blocks, mid + 4 up-blocks, cross-attention to CLIP-ViT-L/14), RAIL-M, real-artifact baseline for SD UNet parity vs diffusers (#1151)",
+        weights_url: "https://huggingface.co/ferrotorch/sd-v1-5-unet/resolve/main/model.safetensors",
+        weights_sha256: "2a79ed44ee0eb33080c28498a200a3c79f112db86ddf5bfc81744793d56ab8b9",
+        format: WeightsFormat::SafeTensors,
+        num_parameters: 859_520_964,
+    },
 ];
 
 /// List all available pretrained models.
