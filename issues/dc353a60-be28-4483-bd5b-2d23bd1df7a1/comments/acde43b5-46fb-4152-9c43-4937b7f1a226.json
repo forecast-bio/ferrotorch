@@ -1,0 +1,10 @@
+{
+  "uuid": "acde43b5-46fb-4152-9c43-4937b7f1a226",
+  "issue_uuid": "dc353a60-be28-4483-bd5b-2d23bd1df7a1",
+  "author": "y4rr",
+  "content": "Result: fix landed in roi_align/aligned=false + keypoint ROI 4-level + LevelMapper eps. Harness: 7/8 PASS no regression; keypointrcnn 4/5 images PASS, image5 score_max_abs=0.0245 vs 0.02 threshold (0.0045 over). Pre-fix was 3 FAIL images and score_max_abs 0.0679 on image5 — fix already a 2.8× tightening. Residual: f32 noise on rank-4 sorted-score for a borderline 2-class person detection (rust 0.061 vs tv 0.096 — same physical box). Lib tests 446/446 PASS; clippy clean; build clean.",
+  "created_at": "2026-05-11T15:49:14.573312169Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQF/Y0xMT18YlcZQab3wMB6Ilz2DFIG+lAMWr/3gtqgxdHwZX7IAPmIPDeQrOOADwV2idr0HFfPIyUob9W0hnBw=="
+}
