@@ -34,7 +34,8 @@ use ferrotorch_nn::{InterpolateMode, Module, interpolate};
 use ferrotorch_vision::io::read_image_as_tensor;
 use ferrotorch_vision::models::bn_buffer_loader::apply_bn_buffers_from_state_dict;
 use ferrotorch_vision::models::detection::{
-    KeypointRcnn, MaskRcnn, keypointrcnn_resnet50_fpn, maskrcnn_resnet50_fpn,
+    FasterRcnn, KeypointRcnn, MaskRcnn, fasterrcnn_resnet50_fpn,
+    keypointrcnn_resnet50_fpn, maskrcnn_resnet50_fpn,
 };
 use ferrotorch_vision::models::get_model;
 
@@ -399,6 +400,93 @@ fn run_maskrcnn_dump(input: &Tensor<f32>, output_path: &PathBuf) -> Result<(), S
     Ok(())
 }
 
+/// Build, weight-load, and run a FasterRcnn directly (not via the registry's
+/// `Box<dyn Module>`) so we can extract the full `Detections` (boxes +
+/// scores). The registry's `Module::forward` only returns 1-D post-NMS scores,
+/// which is sufficient for the per-image score harness check but NOT for
+/// COCO-mAP-style box-IoU pairing (#1145 harness criterion: per-rank score
+/// pairing is structurally wrong for FasterRCNN-family detectors — f32 drift
+/// flips NMS keep/drop decisions on score-borderline candidates, so rank-N
+/// rust and rank-N tv can be different physical detections).
+///
+/// Replicates `models::registry::maybe_load_pretrained`'s weight-loading
+/// exactly: hub lookup → safetensors load → `load_state_dict(strict=false)`
+/// → BN buffer apply.
+fn run_fasterrcnn_dump(input: &Tensor<f32>, output_path: &PathBuf) -> Result<(), String> {
+    let mut model = fasterrcnn_resnet50_fpn::<f32>(91)
+        .map_err(|e| format!("fasterrcnn_resnet50_fpn: {e}"))?;
+    let info = ferrotorch_hub::registry::get_model_info("fasterrcnn_resnet50_fpn")
+        .ok_or_else(|| {
+            "ferrotorch_hub::registry: no entry for 'fasterrcnn_resnet50_fpn'".to_string()
+        })?;
+    let cache = ferrotorch_hub::cache::HubCache::with_default_dir();
+    let path = ferrotorch_hub::download::download_weights(info, &cache)
+        .map_err(|e| format!("download_weights: {e}"))?;
+    let state_dict = match info.format {
+        ferrotorch_hub::registry::WeightsFormat::SafeTensors => {
+            ferrotorch_serialize::load_safetensors::<f32>(&path)
+                .map_err(|e| format!("load_safetensors: {e}"))?
+        }
+        ferrotorch_hub::registry::WeightsFormat::FerrotorchStateDict => {
+            ferrotorch_serialize::load_state_dict::<f32>(&path)
+                .map_err(|e| format!("load_state_dict: {e}"))?
+        }
+    };
+    model
+        .load_state_dict(&state_dict, false)
+        .map_err(|e| format!("load_state_dict (apply): {e}"))?;
+    apply_bn_buffers_from_state_dict(&model as &dyn Module<f32>, &state_dict)
+        .map_err(|e| format!("apply_bn_buffers: {e}"))?;
+    model.eval();
+    eprintln!("[inference_dump] fasterrcnn loaded; running FasterRcnn::forward...");
+
+    let dets = FasterRcnn::forward(&model, input).map_err(|e| format!("forward: {e}"))?;
+
+    // Pull first-image detections (we only ever pass batch=1).
+    let (scores, boxes) = if let Some(d) = dets.into_iter().next() {
+        (d.scores, d.boxes)
+    } else {
+        // Zero detections — emit empty tensors with correct shapes.
+        let scores = Tensor::from_storage(
+            ferrotorch_core::TensorStorage::cpu(vec![]),
+            vec![0usize],
+            false,
+        )
+        .map_err(|e| format!("empty scores: {e}"))?;
+        let boxes = Tensor::from_storage(
+            ferrotorch_core::TensorStorage::cpu(vec![]),
+            vec![0, 4],
+            false,
+        )
+        .map_err(|e| format!("empty boxes: {e}"))?;
+        (scores, boxes)
+    };
+
+    eprintln!(
+        "[inference_dump] fasterrcnn output: scores={:?}, boxes={:?}",
+        scores.shape(),
+        boxes.shape(),
+    );
+
+    // Primary output: scores (matches retinanet/fcos/keypointrcnn convention).
+    dump_tensor(&scores, output_path).map_err(|e| format!("dump_tensor scores: {e}"))?;
+
+    // Companion file: `<output>.boxes.bin`. Harness pairs rust↔tv by box-IoU
+    // (COCO mAP-style) and compares scores on matched pairs.
+    let boxes_path = {
+        let mut p = output_path.clone();
+        let fname = format!(
+            "{}.boxes.bin",
+            output_path.file_name().and_then(|n| n.to_str()).unwrap_or("out")
+        );
+        p.set_file_name(fname);
+        p
+    };
+    dump_tensor(&boxes, &boxes_path).map_err(|e| format!("dump_tensor boxes: {e}"))?;
+    eprintln!("[inference_dump] dumped scores={output_path:?}, boxes={boxes_path:?}");
+    Ok(())
+}
+
 /// Build, weight-load, and run a KeypointRcnn directly (not via the registry's
 /// `Box<dyn Module>`) so we can extract the full `KeypointDetections`
 /// (boxes + scores + keypoints + keypoint_scores). The registry's
@@ -528,6 +616,15 @@ fn main() -> Result<(), String> {
     // This is harness instrumentation only — no model code is changed.
     if model_name == "maskrcnn_resnet50_fpn" {
         return run_maskrcnn_dump(&input, &output_path);
+    }
+
+    // FasterRCNN needs a companion `.boxes.bin` so the #1145 harness can pair
+    // rust↔tv detections by box-IoU (COCO mAP-style) — per-rank score pairing
+    // is structurally wrong for FasterRCNN-family detectors (f32 drift flips
+    // NMS keep/drop on score-borderline candidates). Module::forward alone
+    // exposes only the 1-D scores.
+    if model_name == "fasterrcnn_resnet50_fpn" {
+        return run_fasterrcnn_dump(&input, &output_path);
     }
 
     // KeypointRCNN likewise needs companion boxes + keypoints + keypoint_scores

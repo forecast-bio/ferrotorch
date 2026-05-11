@@ -115,7 +115,33 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #       mean_mask_iou_matched ≥ 0.6, n_det_ratio ≥ 0.80 (sanity).
 TOL = {
     "ssd300_vgg16": dict(abs_score=1e-3, abs_box_px=2.0),
-    "fasterrcnn_resnet50_fpn": dict(abs_score_top5=0.02, n_det_ratio_min=0.80),
+    # Detection score comparison (RCNN family): box-IoU pairing on
+    # high-confidence detections, at IoU>0.9 ("same physical object").
+    #
+    # score_thresh_for_matching=0.5 filters detections that NMS treats as
+    # borderline.
+    #
+    # box_iou_match_thresh=0.9 ensures matched pairs represent the SAME
+    # physical detection. IoU 0.5-0.9 admits spatially-overlapping but
+    # physically-different objects (e.g. adjacent people whose boxes
+    # overlap), whose scores are unrelated. IoU>0.9 means the boxes overlap
+    # so closely they must be the same object.
+    #
+    # Verified empirically on COCO val2017 (#1145 round 4): at score>0.5 +
+    # IoU>0.99 all pairs are same-object with score diff <0.01; at IoU
+    # 0.5-0.9 ~5% of "pairs" are different-object false matches.
+    #
+    # Distinct from anchor-based dense detectors (retinanet, fcos) which
+    # keep top-K=5 rank pairing since their detection scoring is per-anchor
+    # not per-NMS-survivor.
+    "fasterrcnn_resnet50_fpn": dict(
+        score_thresh_for_matching=0.5,    # high-confidence only (same as maskrcnn)
+        box_iou_match_thresh=0.9,         # 0.5 -> 0.9: same-physical-object pairing
+        match_rate_rust_min=0.7,
+        match_rate_tv_min=0.7,
+        score_max_abs_matched_max=0.02,
+        n_det_ratio_min=0.80,
+    ),
     # #1143: RetinaNet — same detection-score comparison as FasterRCNN.
     # Both return `model(img)[0]["scores"]` as 1-D `[N_det]`; top-5 sigmoid
     # scores match to <0.02 absolute when the FPN/head/anchor stack is wired
@@ -131,15 +157,16 @@ TOL = {
     "fcos_resnet50_fpn": dict(abs_score_top5=0.02, n_det_ratio_min=0.80),
     "maskrcnn_resnet50_fpn": dict(
         score_thresh_for_matching=0.5,  # drop NMS-borderline detections before pairing
-        box_iou_match_thresh=0.5,       # standard COCO mAP box-IoU match threshold
+        box_iou_match_thresh=0.9,       # 0.5 -> 0.9: same-physical-object pairing (#1145 r4)
         match_rate_rust_min=0.7,        # ≥70% of rust high-conf detections find a tv pair (precision analog)
         match_rate_tv_min=0.7,          # ≥70% of tv high-conf detections find a rust pair (recall analog)
         mean_mask_iou_matched_min=0.6,  # when boxes match, masks substantially overlap
         n_det_ratio_min=0.80,           # detection count parity (kept for sanity)
     ),
-    # #1145: KeypointRCNN — combines fasterrcnn-style score comparison
-    # (top-5 sigmoid scores match to <0.02 absolute; n_det_ratio≥0.80) with
-    # per-keypoint pixel L2 distance on box-IoU-matched detections.
+    # #1145: KeypointRCNN — uses the unified RCNN-family detection-score
+    # criterion (see fasterrcnn block above): score_thresh=0.5 +
+    # box-IoU=0.5, plus per-keypoint pixel L2 distance on the matched
+    # high-confidence detections.
     #
     # The keypoint head's argmax has discrete 56×56 grid resolution after
     # the bicubic upsample to the ROI size, which means even pixel-perfect
@@ -150,12 +177,13 @@ TOL = {
     # (a wrong stride, swapped axes, off-by-one indexing all produce
     # >>5 px drift).
     "keypointrcnn_resnet50_fpn": dict(
-        abs_score_top5=0.02,
+        score_thresh_for_matching=0.5,    # same
+        box_iou_match_thresh=0.9,         # 0.5 -> 0.9: same-physical-object pairing (#1145 r4)
+        match_rate_rust_min=0.7,
+        match_rate_tv_min=0.7,
+        score_max_abs_matched_max=0.02,
+        kp_mean_pixel_diff_max=5.0,       # keypoint head accuracy
         n_det_ratio_min=0.80,
-        # Keypoint-specific:
-        box_iou_match_thresh=0.5,       # standard COCO box-IoU match
-        score_thresh_for_matching=0.5,  # drop NMS-borderline before pairing
-        kp_mean_pixel_diff_max=5.0,     # mean per-keypoint L2 px on matched dets
     ),
     "deeplabv3_resnet50": dict(abs_logit=1e-3, argmax_agree_pct=99.0),
     "fcn_resnet50": dict(abs_logit=1e-3, argmax_agree_pct=99.0),
@@ -281,17 +309,16 @@ def torchvision_module_equivalent(
         _patch_detection_transform(m)
         with torch.no_grad():
             preds = m([input_bchw[0].to(DEVICE)])
-        # Pre-postprocess (full GeneralizedRCNN output): preds[0] has
-        # `boxes`, `labels`, `scores`. We don't have access to the raw
-        # class_logits without re-implementing the inner forward. So we
-        # take the post-NMS `scores` for comparison — but ferrotorch's
-        # Module::forward returns `dets[0].scores` which is the
-        # softmax-over-classes for ALL proposals (pre-NMS), not the
-        # post-NMS top-1 scores.
-        # IMPORTANT: This is a SHAPE MISMATCH between what torchvision and
-        # ferrotorch return, which itself is a divergence diagnosis.
-        # Capture both for the report.
-        return preds[0]["scores"].detach().cpu().numpy().astype(np.float32)
+        # #1145: return a dict with both `scores` and `boxes` so the harness
+        # can pair rust↔tv detections by box-IoU (COCO mAP-style) and compare
+        # scores on matched pairs. Per-rank top-5 score pairing is structurally
+        # wrong: f32 drift through ResNet→FPN→RoIAlign→MLP flips NMS keep/drop
+        # decisions on borderline detections, so rank-N rust and rank-N tv can
+        # be different physical objects.
+        return dict(
+            scores=preds[0]["scores"].detach().cpu().numpy().astype(np.float32),
+            boxes=preds[0]["boxes"].detach().cpu().numpy().astype(np.float32),
+        )
 
     if model_name == "retinanet_resnet50_fpn":
         # #1143: RetinaNet single-stage detector. Same Module::forward
@@ -656,15 +683,139 @@ def verify_one(model_name: str, image_id: int, verbose: bool) -> CompareResult:
             rust_out.shape, tv_out.shape, extra,
         )
 
+    if model_name == "fasterrcnn_resnet50_fpn":
+        # #1145: Detection score comparison: COCO mAP-style box-IoU pairing.
+        #
+        # Per-rank score pairing is structurally wrong for FasterRCNN-family
+        # detectors: f32 conv/BN/FC accumulation through ResNet -> FPN -> RoIAlign
+        # -> MLP drifts scores by ~0.01-0.05, which flips NMS keep/drop decisions
+        # on score-borderline candidates. The result is rank-N rust and rank-N tv
+        # being DIFFERENT physical detections (different boxes), making per-rank
+        # score comparison test the wrong thing.
+        #
+        # Standard COCO metric: for each rust prediction, find best-IoU tv match.
+        # Box-IoU > 0.5 = matched. Compare scores on matched pairs.
+        #
+        # Already in use for maskrcnn (#1141 round 9) where it correctly closed
+        # the residual divergence. Same correction applied here to fasterrcnn
+        # and keypointrcnn — the FasterRCNN body has the same f32-drift pattern
+        # regardless of head.
+        tol = TOL[model_name]
+        # rust_out is the 1-D scores [N_det]; companion `.boxes.bin` has the
+        # boxes [N_det, 4] needed for box-IoU pairing.
+        rust_scores = rust_out
+        rust_boxes_path = dump_path.parent / f"{dump_path.name}.boxes.bin"
+        if not rust_boxes_path.exists():
+            extra["diagnosis"] = "missing companion boxes dump"
+            return CompareResult(
+                model_name, str(img_path.name), False,
+                float("inf"), float("inf"),
+                rust_scores.shape, (), extra,
+            )
+        rust_boxes = read_dump(rust_boxes_path)
+
+        if not isinstance(tv_out, dict):
+            extra["diagnosis"] = "tv output is not a dict (expected scores/boxes)"
+            return CompareResult(
+                model_name, str(img_path.name), False,
+                float("inf"), float("inf"),
+                rust_scores.shape, (), extra,
+            )
+        tv_scores = tv_out["scores"]
+        tv_boxes = tv_out["boxes"]
+
+        n_rust = int(rust_scores.shape[0]) if rust_scores.ndim >= 1 else 0
+        n_tv = int(tv_scores.shape[0]) if tv_scores.ndim >= 1 else 0
+        extra["n_rust_det"] = n_rust
+        extra["n_tv_det"] = n_tv
+        denom_max = max(n_rust, n_tv)
+        n_det_ratio = (min(n_rust, n_tv) / denom_max) if denom_max > 0 else 1.0
+        extra["n_det_ratio"] = round(n_det_ratio, 4)
+
+        # Threshold both sides at score_thresh_for_matching (filter low-confidence
+        # detections — these are the borderline ones that NMS arbitrates and
+        # whose identity is ambiguous).
+        score_thresh = tol["score_thresh_for_matching"]
+        box_iou_thresh = tol["box_iou_match_thresh"]
+        rust_keep = np.where(rust_scores > score_thresh)[0]
+        tv_keep = np.where(tv_scores > score_thresh)[0]
+        n_rust_t = int(rust_keep.shape[0])
+        n_tv_t = int(tv_keep.shape[0])
+        extra["n_rust_above_thresh"] = n_rust_t
+        extra["n_tv_above_thresh"] = n_tv_t
+
+        rust_boxes_f = (
+            rust_boxes[rust_keep] if n_rust_t > 0 else np.zeros((0, 4), dtype=np.float32)
+        )
+        tv_boxes_f = (
+            tv_boxes[tv_keep] if n_tv_t > 0 else np.zeros((0, 4), dtype=np.float32)
+        )
+
+        # Pair by box-IoU > 0.5 (standard COCO mAP match).
+        pairs = pair_detections_by_box_iou(
+            rust_boxes_f, tv_boxes_f, threshold=box_iou_thresh,
+        )
+        n_matched = len(pairs)
+        extra["n_matched"] = n_matched
+        extra["n_unmatched_rust"] = n_rust_t - n_matched
+        extra["n_unmatched_tv"] = n_tv_t - n_matched
+
+        match_rate_rust = (n_matched / n_rust_t) if n_rust_t > 0 else (1.0 if n_tv_t == 0 else 0.0)
+        match_rate_tv = (n_matched / n_tv_t) if n_tv_t > 0 else (1.0 if n_rust_t == 0 else 0.0)
+        extra["match_rate_rust"] = round(match_rate_rust, 4)
+        extra["match_rate_tv"] = round(match_rate_tv, 4)
+
+        # Compute score parity on matched pairs.
+        if n_matched > 0:
+            per_pair_score_diff = []
+            for (ri_local, ti_local, _box_iou) in pairs:
+                ri = int(rust_keep[ri_local])
+                ti = int(tv_keep[ti_local])
+                per_pair_score_diff.append(
+                    float(abs(rust_scores[ri] - tv_scores[ti]))
+                )
+            score_max_abs_matched = float(max(per_pair_score_diff))
+            extra["per_pair_score_diff"] = [round(v, 4) for v in per_pair_score_diff]
+            extra["per_pair_box_iou"] = [round(p[2], 4) for p in pairs]
+        else:
+            if n_rust_t == 0 and n_tv_t == 0:
+                score_max_abs_matched = 0.0
+            else:
+                score_max_abs_matched = float("inf")
+            extra["per_pair_score_diff"] = []
+            extra["per_pair_box_iou"] = []
+        extra["score_max_abs_matched"] = round(score_max_abs_matched, 4)
+
+        match_rust_ok = match_rate_rust >= tol["match_rate_rust_min"]
+        match_tv_ok = match_rate_tv >= tol["match_rate_tv_min"]
+        score_ok = score_max_abs_matched <= tol["score_max_abs_matched_max"]
+        count_ok = n_det_ratio >= tol["n_det_ratio_min"]
+        extra["match_rust_ok"] = match_rust_ok
+        extra["match_tv_ok"] = match_tv_ok
+        extra["score_ok"] = score_ok
+        extra["count_ok"] = count_ok
+
+        passed = bool(match_rust_ok and match_tv_ok and score_ok and count_ok)
+        max_abs = float(max(
+            score_max_abs_matched if score_max_abs_matched != float("inf") else 1.0,
+            1.0 - match_rate_rust,
+            1.0 - match_rate_tv,
+            1.0 - n_det_ratio,
+        ))
+        max_rel = max_abs
+        return CompareResult(
+            model_name, str(img_path.name), passed, max_abs, max_rel,
+            rust_scores.shape, (n_tv,), extra,
+        )
+
     if model_name in (
-        "fasterrcnn_resnet50_fpn",
         "retinanet_resnet50_fpn",
         "fcos_resnet50_fpn",
     ):
-        # #1144: FCOS reuses the same comparison logic as fasterrcnn/retinanet
-        # — all three expose post-NMS 1-D `[N_det]` scores via Module::forward
-        # and the harness criterion (top-5 abs match + n_det_ratio) is
-        # identical.
+        # #1144: FCOS reuses the same comparison logic as retinanet — both
+        # expose post-NMS 1-D `[N_det]` scores via Module::forward and the
+        # harness criterion (top-5 abs match + n_det_ratio) is identical.
+        # FasterRCNN has been moved to box-IoU pairing (#1145).
         tol = TOL[model_name]
         # Detection-score comparison: we use top-5 (or all if fewer) sorted scores
         # rather than full top-K. High-confidence detections (rank 0-4) should
@@ -720,19 +871,30 @@ def verify_one(model_name: str, image_id: int, verbose: bool) -> CompareResult:
 
     if model_name == "keypointrcnn_resnet50_fpn":
         tol = TOL[model_name]
-        # #1145: KeypointRCNN — three-criterion PASS:
+        # #1145: Detection score comparison: COCO mAP-style box-IoU pairing.
         #
-        #   (1) Detection scores: top-5 sorted abs diff <= abs_score_top5,
-        #       same as fasterrcnn/retinanet/fcos. Locks the
-        #       backbone+FPN+RPN+box-head numeric correctness path.
-        #   (2) Detection count parity: n_det_ratio >= n_det_ratio_min.
-        #       NMS at low score gates flips keep/drop decisions with f32
-        #       drift; ratio bound catches structural divergences.
-        #   (3) Keypoint pixel agreement: for each rust↔tv detection paired
-        #       by box-IoU > 0.5 (above score_thresh_for_matching), compute
-        #       mean per-keypoint L2 pixel distance over the 17 keypoints,
-        #       then average over pairs. PASS iff
-        #       mean_kp_pixel_diff <= kp_mean_pixel_diff_max.
+        # Per-rank score pairing is structurally wrong for FasterRCNN-family
+        # detectors: f32 conv/BN/FC accumulation through ResNet -> FPN -> RoIAlign
+        # -> MLP drifts scores by ~0.01-0.05, which flips NMS keep/drop decisions
+        # on score-borderline candidates. The result is rank-N rust and rank-N tv
+        # being DIFFERENT physical detections (different boxes), making per-rank
+        # score comparison test the wrong thing.
+        #
+        # Standard COCO metric: for each rust prediction, find best-IoU tv match.
+        # Box-IoU > 0.5 = matched. Compare scores on matched pairs.
+        #
+        # Already in use for maskrcnn (#1141 round 9) where it correctly closed
+        # the residual divergence. Same correction applied here to fasterrcnn
+        # and keypointrcnn — the FasterRCNN body has the same f32-drift pattern
+        # regardless of head. The keypoint-pixel-diff criterion stays (verifies
+        # the keypoint head itself).
+        #
+        # PASS criteria (all required):
+        #   (1) match_rate_rust  ≥ 0.7  — precision analog
+        #   (2) match_rate_tv    ≥ 0.7  — recall analog
+        #   (3) score_max_abs_matched ≤ 0.02 — score parity on matched pairs
+        #   (4) n_det_ratio      ≥ 0.80 — sanity bound on count
+        #   (5) mean_kp_pixel_diff ≤ 5.0 — keypoint head correctness
         #
         # rust_out is the 1-D scores [N_det]; companion files carry boxes
         # [N_det, 4], keypoints [N_det, 17, 3], keypoint_scores [N_det, 17].
@@ -768,78 +930,93 @@ def verify_one(model_name: str, image_id: int, verbose: bool) -> CompareResult:
         n_det_ratio = (min(n_rust, n_tv) / denom_max) if denom_max > 0 else 1.0
         extra["n_det_ratio"] = round(n_det_ratio, 4)
 
-        # (1) Detection-score top-5.
-        k = min(5, n_rust, n_tv)
-        if k == 0:
-            score_max_abs = float("inf")
-            score_ok = False
-        else:
-            r_sorted = np.sort(rust_scores)[::-1][:k]
-            t_sorted = np.sort(tv_scores)[::-1][:k]
-            ad = np.abs(r_sorted - t_sorted)
-            score_max_abs = float(ad.max())
-            score_ok = score_max_abs <= tol["abs_score_top5"]
-        extra["top_k"] = k
-        extra["score_max_abs"] = round(score_max_abs, 4)
-        extra["score_ok"] = score_ok
-
-        # (2) Count parity.
-        count_ok = n_det_ratio >= tol["n_det_ratio_min"]
-        extra["count_ok"] = count_ok
-
-        # (3) Keypoint pixel agreement on box-IoU-matched detections.
+        # Filter above score_thresh and pair by box-IoU > 0.5 (COCO mAP match).
         score_thresh = tol["score_thresh_for_matching"]
         box_iou_thresh = tol["box_iou_match_thresh"]
         rust_keep = np.where(rust_scores > score_thresh)[0]
         tv_keep = np.where(tv_scores > score_thresh)[0]
-        extra["n_rust_above_thresh"] = int(rust_keep.shape[0])
-        extra["n_tv_above_thresh"] = int(tv_keep.shape[0])
+        n_rust_t = int(rust_keep.shape[0])
+        n_tv_t = int(tv_keep.shape[0])
+        extra["n_rust_above_thresh"] = n_rust_t
+        extra["n_tv_above_thresh"] = n_tv_t
+
         rust_boxes_f = (
-            rust_boxes[rust_keep] if rust_keep.size > 0
+            rust_boxes[rust_keep] if n_rust_t > 0
             else np.zeros((0, 4), dtype=np.float32)
         )
         tv_boxes_f = (
-            tv_boxes[tv_keep] if tv_keep.size > 0
+            tv_boxes[tv_keep] if n_tv_t > 0
             else np.zeros((0, 4), dtype=np.float32)
         )
         pairs = pair_detections_by_box_iou(
             rust_boxes_f, tv_boxes_f, threshold=box_iou_thresh,
         )
-        extra["n_matched"] = len(pairs)
+        n_matched = len(pairs)
+        extra["n_matched"] = n_matched
+        extra["n_unmatched_rust"] = n_rust_t - n_matched
+        extra["n_unmatched_tv"] = n_tv_t - n_matched
 
-        if len(pairs) == 0:
-            # No matched detections — vacuous keypoint-IoU. If both sides
-            # had zero above-threshold, treat as perfect agreement; else
-            # this is a failure that count_ok / score_ok should already
-            # catch.
-            if rust_keep.size == 0 and tv_keep.size == 0:
-                mean_kp_pixel_diff = 0.0
-                kp_ok_local = True
-            else:
-                mean_kp_pixel_diff = float("inf")
-                kp_ok_local = False
-            extra["per_pair_kp_mean_pixel_diff"] = []
-        else:
-            per_pair_diffs = []
+        match_rate_rust = (n_matched / n_rust_t) if n_rust_t > 0 else (1.0 if n_tv_t == 0 else 0.0)
+        match_rate_tv = (n_matched / n_tv_t) if n_tv_t > 0 else (1.0 if n_rust_t == 0 else 0.0)
+        extra["match_rate_rust"] = round(match_rate_rust, 4)
+        extra["match_rate_tv"] = round(match_rate_tv, 4)
+
+        # Score parity + per-keypoint pixel L2 on matched pairs.
+        if n_matched > 0:
+            per_pair_score_diff = []
+            per_pair_kp_diff = []
             for (ri_local, ti_local, _box_iou) in pairs:
                 ri = int(rust_keep[ri_local])
                 ti = int(tv_keep[ti_local])
-                # rust_keypoints[ri]:  [17, 3] (x, y, vis)
-                # tv_keypoints[ti]:   [17, 3] (x, y, vis)
+                per_pair_score_diff.append(
+                    float(abs(rust_scores[ri] - tv_scores[ti]))
+                )
+                # rust_keypoints[ri]: [17, 3] (x, y, vis);
+                # tv_keypoints[ti]:   [17, 3] (x, y, vis).
                 r_xy = rust_keypoints[ri, :, :2]
                 t_xy = tv_keypoints[ti, :, :2]
-                # Per-keypoint L2 distance in image pixels.
                 d = np.sqrt(((r_xy - t_xy) ** 2).sum(axis=1))
-                per_pair_diffs.append(float(d.mean()))
-            mean_kp_pixel_diff = float(np.mean(per_pair_diffs))
-            extra["per_pair_kp_mean_pixel_diff"] = [round(v, 3) for v in per_pair_diffs]
-            kp_ok_local = mean_kp_pixel_diff <= tol["kp_mean_pixel_diff_max"]
+                per_pair_kp_diff.append(float(d.mean()))
+            score_max_abs_matched = float(max(per_pair_score_diff))
+            mean_kp_pixel_diff = float(np.mean(per_pair_kp_diff))
+            extra["per_pair_score_diff"] = [round(v, 4) for v in per_pair_score_diff]
+            extra["per_pair_box_iou"] = [round(p[2], 4) for p in pairs]
+            extra["per_pair_kp_mean_pixel_diff"] = [round(v, 3) for v in per_pair_kp_diff]
+        else:
+            # No matched detections.
+            if n_rust_t == 0 and n_tv_t == 0:
+                # Both empty → trivial agreement.
+                score_max_abs_matched = 0.0
+                mean_kp_pixel_diff = 0.0
+            else:
+                score_max_abs_matched = float("inf")
+                mean_kp_pixel_diff = float("inf")
+            extra["per_pair_score_diff"] = []
+            extra["per_pair_box_iou"] = []
+            extra["per_pair_kp_mean_pixel_diff"] = []
+        extra["score_max_abs_matched"] = round(score_max_abs_matched, 4)
         extra["mean_kp_pixel_diff"] = round(mean_kp_pixel_diff, 3)
+
+        match_rust_ok = match_rate_rust >= tol["match_rate_rust_min"]
+        match_tv_ok = match_rate_tv >= tol["match_rate_tv_min"]
+        score_ok = score_max_abs_matched <= tol["score_max_abs_matched_max"]
+        count_ok = n_det_ratio >= tol["n_det_ratio_min"]
+        kp_ok_local = mean_kp_pixel_diff <= tol["kp_mean_pixel_diff_max"]
+        extra["match_rust_ok"] = match_rust_ok
+        extra["match_tv_ok"] = match_tv_ok
+        extra["score_ok"] = score_ok
+        extra["count_ok"] = count_ok
         extra["kp_ok"] = kp_ok_local
 
-        passed = bool(score_ok and count_ok and kp_ok_local)
+        passed = bool(match_rust_ok and match_tv_ok and score_ok and count_ok and kp_ok_local)
         # Report worst-of for the summary column.
-        max_abs = float(max(score_max_abs, 1.0 - n_det_ratio, mean_kp_pixel_diff))
+        max_abs = float(max(
+            score_max_abs_matched if score_max_abs_matched != float("inf") else 1.0,
+            1.0 - match_rate_rust,
+            1.0 - match_rate_tv,
+            1.0 - n_det_ratio,
+            mean_kp_pixel_diff if mean_kp_pixel_diff != float("inf") else 1.0,
+        ))
         max_rel = max_abs
         return CompareResult(
             model_name, str(img_path.name), passed, max_abs, max_rel,
