@@ -1,0 +1,10 @@
+{
+  "uuid": "e8959c0a-9f20-471a-8893-462a264b86dc",
+  "issue_uuid": "dc353a60-be28-4483-bd5b-2d23bd1df7a1",
+  "author": "y4rr",
+  "content": "Commit 8538abd90 lands the aligned=false fix. Per task directive 'NO declaring closure until 8/8 PASS verified by REAL harness output' the issue stays OPEN — keypointrcnn image 397133 has score_max_abs=0.0245 vs the 0.02 tolerance threshold (0.0045 over). All other 7 models PASS unchanged; keypointrcnn 4/5 images PASS. The residual is f32 rank-4 sorted-score drift on a borderline 2-class person detection, not a structural bug — locking-in a NEW followup-only-allowed-after-this-resolves issue may be the right path, OR the harness convention for 2-class detection models may need to use box-IoU-paired scores instead of top-K sorted scores (different metric, not tolerance loosening).",
+  "created_at": "2026-05-11T15:50:13.945877863Z",
+  "kind": "blocker",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA6b7nLpIe0rcgzEPHoGbX6j+bW+9S/qw7I2yGe/S3nn2q7GNm6nHB3FstM4kj/8MhEXcztDS3g1I6zJoYqijVAQ=="
+}
