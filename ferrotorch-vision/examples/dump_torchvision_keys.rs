@@ -15,7 +15,7 @@
 
 use ferrotorch_nn::Module;
 use ferrotorch_vision::models::detection::{
-    fasterrcnn_resnet50_fpn, maskrcnn_resnet50_fpn, ssd300_vgg16,
+    fasterrcnn_resnet50_fpn, maskrcnn_resnet50_fpn, retinanet_resnet50_fpn, ssd300_vgg16,
 };
 use ferrotorch_vision::models::segmentation::{deeplabv3_resnet50, fcn_resnet50};
 
@@ -42,6 +42,9 @@ fn main() {
     let mrcnn = maskrcnn_resnet50_fpn::<f32>(91).expect("maskrcnn_resnet50_fpn build");
     let dl3 = deeplabv3_resnet50::<f32>(21).expect("deeplabv3_resnet50 build");
     let fcn = fcn_resnet50::<f32>(21).expect("fcn_resnet50 build");
+    // #1143: RetinaNet uses 91 classes for the COCO_V1 checkpoint (no
+    // explicit background; sigmoid per-class scoring).
+    let retina = retinanet_resnet50_fpn::<f32>(91).expect("retinanet_resnet50_fpn build");
 
     let out = serde_json::json!({
         "ssd300_vgg16": dump(&ssd),
@@ -49,6 +52,7 @@ fn main() {
         "maskrcnn_resnet50_fpn": dump(&mrcnn),
         "deeplabv3_resnet50": dump(&dl3),
         "fcn_resnet50": dump(&fcn),
+        "retinanet_resnet50_fpn": dump(&retina),
     });
     println!("{}", serde_json::to_string_pretty(&out).unwrap());
 }

@@ -581,6 +581,116 @@ def map_deeplabv3_keys(
     return out, used_tv, filled_ft, intentional_drop_tv
 
 
+def map_retinanet_keys(
+    tv_sd: dict[str, torch.Tensor],
+    ft_keys: dict[str, list],
+) -> tuple[dict[str, torch.Tensor], set[str], set[str], set[str]]:
+    """Map RetinaNet ResNet50+FPN state_dict to ferrotorch keys.
+
+    Distinct from FasterRCNN/MaskRCNN:
+    - FPN has only 3 lateral inputs (inner_blocks.0..2 → lateral3..5).
+    - FPN extra blocks: `LastLevelP6P7` — `extra_blocks.p6.{w,b}` and
+      `extra_blocks.p7.{w,b}` mapped to `fpn.p6.*` and `fpn.p7.*`.
+    - Classification / regression heads: torchvision wraps the 4 inner convs
+      in `Conv2dNormActivation` so the keys are
+      `head.classification_head.conv.<i>.0.{weight,bias}`. The final
+      cls_logits/bbox_reg are bare `nn.Conv2d`.
+    """
+    out: dict[str, torch.Tensor] = {}
+    used_tv: set[str] = set()
+    filled_ft: set[str] = set()
+    intentional_drop_tv: set[str] = set()
+
+    # ResNet-50 backbone — same body wrapping as FasterRCNN.
+    _map_resnet50_backbone(
+        tv_sd, "backbone.body", "backbone", ft_keys,
+        out, used_tv, filled_ft,
+    )
+    _fill_resnet_fc_random(ft_keys, "backbone", out, filled_ft)
+
+    # FPN — only 3 lateral / output blocks (inner_blocks.0..2 → C3..C5 /
+    # lateral3..5). _map_fpn_with_bias hard-codes 4 levels so we inline the
+    # 3-level mapping here.
+    fpn_tv = "backbone.fpn"
+    fpn_ft = "fpn"
+    for i, level in enumerate([3, 4, 5]):
+        for kind in ("weight", "bias"):
+            tv_w = f"{fpn_tv}.inner_blocks.{i}.0.{kind}"
+            ft_w = f"{fpn_ft}.lateral{level}.{kind}"
+            if tv_w not in tv_sd:
+                raise SystemExit(
+                    f"retinanet: torchvision key '{tv_w}' missing "
+                    f"(needed for '{ft_w}')"
+                )
+            _check_shape(ft_w, tv_sd[tv_w], ft_keys[ft_w])
+            out[ft_w] = tv_sd[tv_w]
+            used_tv.add(tv_w)
+            filled_ft.add(ft_w)
+
+            tv_o = f"{fpn_tv}.layer_blocks.{i}.0.{kind}"
+            ft_o = f"{fpn_ft}.output{level}.{kind}"
+            if tv_o not in tv_sd:
+                raise SystemExit(
+                    f"retinanet: torchvision key '{tv_o}' missing "
+                    f"(needed for '{ft_o}')"
+                )
+            _check_shape(ft_o, tv_sd[tv_o], ft_keys[ft_o])
+            out[ft_o] = tv_sd[tv_o]
+            used_tv.add(tv_o)
+            filled_ft.add(ft_o)
+
+    # LastLevelP6P7: extra_blocks.p6/p7.
+    for px in ("p6", "p7"):
+        for kind in ("weight", "bias"):
+            tv_k = f"{fpn_tv}.extra_blocks.{px}.{kind}"
+            ft_k = f"{fpn_ft}.{px}.{kind}"
+            if tv_k not in tv_sd:
+                raise SystemExit(
+                    f"retinanet: torchvision key '{tv_k}' missing "
+                    f"(needed for '{ft_k}')"
+                )
+            _check_shape(ft_k, tv_sd[tv_k], ft_keys[ft_k])
+            out[ft_k] = tv_sd[tv_k]
+            used_tv.add(tv_k)
+            filled_ft.add(ft_k)
+
+    # Classification head: 4 conv layers + final cls_logits.
+    for i in range(4):
+        for kind in ("weight", "bias"):
+            tv_k = f"head.classification_head.conv.{i}.0.{kind}"
+            ft_k = f"classification_head.conv.{i}.{kind}"
+            _check_shape(ft_k, tv_sd[tv_k], ft_keys[ft_k])
+            out[ft_k] = tv_sd[tv_k]
+            used_tv.add(tv_k)
+            filled_ft.add(ft_k)
+    for kind in ("weight", "bias"):
+        tv_k = f"head.classification_head.cls_logits.{kind}"
+        ft_k = f"classification_head.cls_logits.{kind}"
+        _check_shape(ft_k, tv_sd[tv_k], ft_keys[ft_k])
+        out[ft_k] = tv_sd[tv_k]
+        used_tv.add(tv_k)
+        filled_ft.add(ft_k)
+
+    # Regression head: 4 conv layers + final bbox_reg.
+    for i in range(4):
+        for kind in ("weight", "bias"):
+            tv_k = f"head.regression_head.conv.{i}.0.{kind}"
+            ft_k = f"regression_head.conv.{i}.{kind}"
+            _check_shape(ft_k, tv_sd[tv_k], ft_keys[ft_k])
+            out[ft_k] = tv_sd[tv_k]
+            used_tv.add(tv_k)
+            filled_ft.add(ft_k)
+    for kind in ("weight", "bias"):
+        tv_k = f"head.regression_head.bbox_reg.{kind}"
+        ft_k = f"regression_head.bbox_reg.{kind}"
+        _check_shape(ft_k, tv_sd[tv_k], ft_keys[ft_k])
+        out[ft_k] = tv_sd[tv_k]
+        used_tv.add(tv_k)
+        filled_ft.add(ft_k)
+
+    return out, used_tv, filled_ft, intentional_drop_tv
+
+
 def map_fcn_keys(
     tv_sd: dict[str, torch.Tensor],
     ft_keys: dict[str, list],
@@ -701,6 +811,20 @@ MODELS: dict[str, dict] = {
             "FCN with ResNet-50 backbone, pretrained on a COCO subset with "
             "Pascal VOC labels (21 classes). Re-keyed from torchvision 0.21 "
             "`fcn_resnet50` (`FCN_ResNet50_Weights.COCO_WITH_VOC_LABELS_V1`)."
+        ),
+    ),
+    "retinanet_resnet50_fpn": dict(
+        factory=lambda: tv_detection.retinanet_resnet50_fpn(weights="COCO_V1"),
+        weights_enum="COCO_V1",
+        num_classes=91,
+        mapper=map_retinanet_keys,
+        has_intentional_drops=False,
+        param_count=34_014_999,
+        description=(
+            "RetinaNet with ResNet-50 + FPN(P3-P7) backbone, pretrained on "
+            "COCO. Re-keyed from torchvision 0.21 `retinanet_resnet50_fpn` "
+            "(`RetinaNet_ResNet50_FPN_Weights.COCO_V1`). 9 anchors/location, "
+            "shared 4-conv class/reg heads, sigmoid scoring."
         ),
     ),
 }

@@ -84,6 +84,9 @@ fn num_classes_for(model: &str) -> Result<usize, String> {
         "maskrcnn_resnet50_fpn" => Ok(91),
         "deeplabv3_resnet50" => Ok(21),
         "fcn_resnet50" => Ok(21),
+        // #1143: RetinaNet COCO_V1 uses 91 classes with no explicit background
+        // (sigmoid scoring is per-class).
+        "retinanet_resnet50_fpn" => Ok(91),
         other => Err(format!("unknown model: {other}")),
     }
 }
@@ -187,7 +190,7 @@ fn preprocess_for_model(model: &str, raw_chw: Tensor<f32>) -> FerrotorchResult<T
             let resized = bilinear_resize_chw_to_bchw(&raw_chw, 300, 300)?;
             normalize_bchw(&resized, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         }
-        "fasterrcnn_resnet50_fpn" | "maskrcnn_resnet50_fpn" => {
+        "fasterrcnn_resnet50_fpn" | "maskrcnn_resnet50_fpn" | "retinanet_resnet50_fpn" => {
             // torchvision GeneralizedRCNNTransform: scale so min side = 800,
             // max side ≤ 1333; preserve aspect ratio.
             let min_size = 800.0_f64;

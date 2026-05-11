@@ -327,6 +327,19 @@ fn default_registry() -> ModelRegistry<f32> {
         }),
     );
 
+    // #1143: RetinaNet single-stage detector with ResNet-50 + FPN(P3-P7)
+    // backbone for object detection. `num_classes` matches torchvision's
+    // pretrained-model convention (91 for the COCO_V1 checkpoint, no
+    // explicit background class — sigmoid scoring is per-class).
+    registry.register_model(
+        "retinanet_resnet50_fpn",
+        Box::new(|pretrained, num_classes| {
+            maybe_load_pretrained(pretrained, "retinanet_resnet50_fpn", || {
+                super::detection::retinanet_resnet50_fpn::<f32>(num_classes)
+            })
+        }),
+    );
+
     registry
 }
 
@@ -457,6 +470,7 @@ mod tests {
         assert!(names.contains(&"fasterrcnn_resnet50_fpn".to_string()));
         assert!(names.contains(&"maskrcnn_resnet50_fpn".to_string()));
         assert!(names.contains(&"ssd300_vgg16".to_string()));
+        assert!(names.contains(&"retinanet_resnet50_fpn".to_string()));
     }
 
     #[test]
@@ -514,6 +528,7 @@ mod tests {
             "deeplabv3_resnet50",
             "fcn_resnet50",
             "ssd300_vgg16",
+            "retinanet_resnet50_fpn",
         ];
         for name in canonical {
             let info = ferrotorch_hub::registry::get_model_info(name);

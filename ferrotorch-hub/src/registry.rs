@@ -270,6 +270,20 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::SafeTensors,
         num_parameters: 35_641_826,
     },
+    // #1143: RetinaNet with ResNet-50 + FPN(P3-P7) backbone for object
+    // detection. Pinned from torchvision 0.21
+    // `RetinaNet_ResNet50_FPN_Weights.COCO_V1` (legacy / canonical, NOT
+    // _v2). The 9 anchors-per-location config + LastLevelP6P7 stride-2 convs
+    // distinguish this from FasterRCNN. Param count matches torchvision's
+    // upstream pretrained sum exactly.
+    ModelInfo {
+        name: "retinanet_resnet50_fpn",
+        description: "RetinaNet with ResNet-50 + FPN(P3-P7) backbone for object detection (#1143, COCO_V1)",
+        weights_url: "https://huggingface.co/ferrotorch/retinanet_resnet50_fpn/resolve/main/model.safetensors",
+        weights_sha256: "2f3593e7a2a1c15c5f2f7e6327e3c3d9de3cb4839922956ffec14b22f362b448",
+        format: WeightsFormat::SafeTensors,
+        num_parameters: 34_014_999,
+    },
 ];
 
 /// List all available pretrained models.
@@ -361,6 +375,7 @@ mod tests {
             "maskrcnn_resnet50_fpn",
             "deeplabv3_resnet50",
             "fcn_resnet50",
+            "retinanet_resnet50_fpn",
         ];
         for name in expected {
             assert!(
