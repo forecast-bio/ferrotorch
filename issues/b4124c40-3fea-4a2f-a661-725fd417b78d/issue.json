@@ -2,11 +2,12 @@
   "uuid": "b4124c40-3fea-4a2f-a661-725fd417b78d",
   "display_id": 1147,
   "title": "causal LM real-artifact harness vs transformers",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-11T16:59:46.474655730Z",
-  "updated_at": "2026-05-11T16:59:48.182292546Z",
+  "updated_at": "2026-05-11T17:22:11.670783456Z",
+  "closed_at": "2026-05-11T17:22:11.670783456Z",
   "labels": [
     "real-artifact"
   ]
