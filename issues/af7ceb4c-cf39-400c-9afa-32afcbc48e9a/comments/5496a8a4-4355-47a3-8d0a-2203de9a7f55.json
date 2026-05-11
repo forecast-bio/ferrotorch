@@ -1,0 +1,10 @@
+{
+  "uuid": "5496a8a4-4355-47a3-8d0a-2203de9a7f55",
+  "issue_uuid": "af7ceb4c-cf39-400c-9afa-32afcbc48e9a",
+  "author": "y4rr",
+  "content": "Result: ferrotorch-bert crate added (5 source files, ~1600 LoC); pin script + verify harness + cargo test wrapper landed. End-to-end PASS: cosine_sim=1.000000, max_abs=0.000000, mean_abs=0.000000 (tolerances cosine>=0.999, max_abs<=0.01). HF mirror live at https://huggingface.co/ferrotorch/all-MiniLM-L6-v2 (sha256 53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db, 22565376 params). 29/29 bert lib tests pass; vision (452) and llama (103) unchanged; cargo build --workspace clean; clippy clean on bert+hub. All 101 BERT parameter keys mapped, dropped keys (embeddings.position_ids int64 buffer + pooler.dense.{weight,bias}) captured in DropReport so the FPN-bias drop bug (#1141) shape cannot recur.",
+  "created_at": "2026-05-11T17:49:31.098313271Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAR7CwQ30WpeyI3kq/TktSMxFRa08sxhdfnoZd2KQ7n+MWguvsVOXbqZedRQCvsy/1SqpH7gxOc8AaHJ8VAbZvAg=="
+}
