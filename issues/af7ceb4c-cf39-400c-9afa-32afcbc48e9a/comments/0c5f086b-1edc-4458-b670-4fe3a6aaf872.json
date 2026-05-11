@@ -1,0 +1,10 @@
+{
+  "uuid": "0c5f086b-1edc-4458-b670-4fe3a6aaf872",
+  "issue_uuid": "af7ceb4c-cf39-400c-9afa-32afcbc48e9a",
+  "author": "y4rr",
+  "content": "Plan: Phase B.1 of real-artifact-driven development — add BERT-family (sentence-transformers/all-MiniLM-L6-v2, 22M params, 6 layers, 384 hidden, Apache 2.0) as the first encoder-only architecture. Steps: (1) Add new ferrotorch-bert crate to workspace (clean separation from ferrotorch-llama since BERT is encoder-only, post-norm, learned positional embeddings, GELU, vs Llama's causal/decoder-only, pre-norm, RoPE, SiLU/SwiGLU — different enough to warrant a separate crate). (2) Implement BertEmbeddings (word+position+token_type+LayerNorm), BertSelfAttention (12 heads, non-causal), BertSelfOutput (Linear + add+norm post-norm), BertIntermediate (Linear+GELU), BertOutput, BertLayer x6, BertModel + SentenceTransformer wrapper (mean-pool over attention mask + L2 normalize). (3) Add scripts/pin_pretrained_text_weights.py to pin to ferrotorch/all-MiniLM-L6-v2 (strip the sentence-transformers '0.auto_model.' prefix in safetensors keys to land on the standard BERT layout). (4) Add scripts/verify_text_embedding_inference.py with cosine_sim_min=0.999, max_abs<=0.01. (5) Add cargo test wrapper. (6) Register in ferrotorch-hub registry.",
+  "created_at": "2026-05-11T17:30:12.481001376Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAcWMfO3pX0+d7jgamfzgF8x1CIBlbQcavkuJj35M8oC1caLvjSOBeSREWpsENyjdgCbc+/P7jjDTWdH7M+07dAw=="
+}
