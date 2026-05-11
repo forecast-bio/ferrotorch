@@ -1,0 +1,12 @@
+{
+  "uuid": "1190adfb-f0e0-4b41-ab99-e043638472bb",
+  "display_id": 1140,
+  "title": "SSD300 NMS top-k caps: implement topk_candidates and detections_per_img matching torchvision",
+  "description": "Surfaced by #1139 measurement dispatch. Ssd300::postprocess_single in ferrotorch-vision/src/models/detection/ssd.rs currently does per-class score-threshold (0.01) + per-class NMS only.\n\nTorchvision additionally:\n- Caps to topk_candidates=400 per class BEFORE NMS.\n- Caps to detections_per_img=200 cross-class AFTER NMS.\n\nWithout these caps, ferrotorch SSD300 returns 1425-2672 per-class survivors vs torchvision's 200 post-NMS detections. Underlying score math is close to correct (max_abs_score divergence = 0.054 vs torchvision); this is purely a postprocess cap policy gap.\n\nAcceptance:\n- Add topk_candidates + detections_per_img caps to postprocess_single.\n- Re-run #1139 verification harness; SSD300 must PASS (numerical equivalence within 1e-3 scores / 2px boxes).\n- Discriminating test asserting cap behavior on a fixture input.\n\nConfidence: HIGH (well-defined gap, small fix).",
+  "status": "open",
+  "priority": "medium",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-11T07:39:13.602977394Z",
+  "updated_at": "2026-05-11T07:39:13.602977394Z"
+}
