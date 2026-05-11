@@ -2,11 +2,12 @@
   "uuid": "dc353a60-be28-4483-bd5b-2d23bd1df7a1",
   "display_id": 1145,
   "title": "keypointrcnn_resnet50_fpn end-to-end torchvision parity",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-11T14:17:08.338125322Z",
-  "updated_at": "2026-05-11T14:17:09.809922011Z",
+  "updated_at": "2026-05-11T16:26:01.934433584Z",
+  "closed_at": "2026-05-11T16:26:01.934433584Z",
   "labels": [
     "real-artifact"
   ]
