@@ -1,0 +1,10 @@
+{
+  "uuid": "f404b4d9-8ba9-4de8-8b05-307f801bdbea",
+  "display_id": 1139,
+  "title": "Verify pretrained model inference quality vs torchvision (#1130-followthrough)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-11T07:11:02.131219338Z",
+  "updated_at": "2026-05-11T07:11:02.131219338Z"
+}
