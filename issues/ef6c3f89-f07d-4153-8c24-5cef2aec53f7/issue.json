@@ -2,11 +2,12 @@
   "uuid": "ef6c3f89-f07d-4153-8c24-5cef2aec53f7",
   "display_id": 1149,
   "title": "Whisper-tiny encoder real-artifact harness vs transformers",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-11T17:51:56.298937201Z",
-  "updated_at": "2026-05-11T17:51:57.747612678Z",
+  "updated_at": "2026-05-11T18:14:43.748851729Z",
+  "closed_at": "2026-05-11T18:14:43.748851729Z",
   "labels": [
     "real-artifact"
   ]
