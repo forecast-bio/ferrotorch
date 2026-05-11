@@ -1,0 +1,10 @@
+{
+  "uuid": "a01e0c14-a9a6-483c-926e-c1b45b8e860f",
+  "issue_uuid": "ef6c3f89-f07d-4153-8c24-5cef2aec53f7",
+  "author": "y4rr",
+  "content": "Plan: Phase B.2 adds ferrotorch-whisper crate as the 24th workspace member, mirroring Phase B.1 (ferrotorch-bert) and Phase A (vision). Encoder-only scope. Audio preprocessing (log-mel spectrogram) using ferrotorch-core FFT primitives + pre-computed 80-mel filter bank (matching Whisper's whisper/assets/mel_filters.npz). Whisper encoder = 2x Conv1d stem (80->384, 384->384) + GELU, sinusoidal positional embedding, 4 pre-norm transformer layers (6-head MHSA, FFN with GELU 384->1536->384), final LayerNorm. PASS bar: cosine_sim>=0.999, max_abs<=0.5 on encoder output [1,1500,384]. Will reuse the DropReport pattern from BertModel for HF state-dict ingest. Three new pieces of evidence: pin script, verify harness, cargo test wrapper. Auto-CHANGELOG only.",
+  "created_at": "2026-05-11T17:53:29.621529765Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAN/0mp2CymMAqBO22+pxq0jzKQZ/ykUbhZvR+WwcWtvcWGMiXzgi0OQnz/ZkzqUnFDI2aBRnupPy2tVDfkinzCw=="
+}
