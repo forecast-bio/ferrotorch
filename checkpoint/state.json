@@ -6,16 +6,12 @@
     "982": {
       "agent_id": "y4rr",
       "claimed_at": "2026-05-08T01:30:00.368322922Z"
-    },
-    "1148": {
-      "agent_id": "y4rr",
-      "claimed_at": "2026-05-11T17:28:23.960410212Z"
     }
   },
   "issues": {},
   "watermark": {
-    "timestamp": "2026-05-11T17:28:23.960410212Z",
+    "timestamp": "2026-05-11T17:49:58.377007148Z",
     "agent_id": "y4rr",
-    "agent_seq": 1293
+    "agent_seq": 1294
   }
 }
