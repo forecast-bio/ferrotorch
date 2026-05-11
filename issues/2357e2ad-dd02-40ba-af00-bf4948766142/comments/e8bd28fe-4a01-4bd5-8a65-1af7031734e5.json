@@ -1,0 +1,10 @@
+{
+  "uuid": "e8bd28fe-4a01-4bd5-8a65-1af7031734e5",
+  "issue_uuid": "2357e2ad-dd02-40ba-af00-bf4948766142",
+  "author": "y4rr",
+  "content": "LRASPP MobileNetV3-Large architecture added (lraspp.rs + extended mobilenet.rs with mobilenet_v3_large). Backbone: MobileNetV3-Large dilated to output_stride=16; head: high (1x1 conv from C5), gate (avgpool + 1x1 + sigmoid), low_classifier (40 ch C2), high_classifier (128 ch combined). 21 VOC classes. PASS first-try: max_abs=0.016, argmax_agree ≥99.99% all 5 images. Pinned to ferrotorch/lraspp_mobilenet_v3_large (SHA f78b07d0b8a4).",
+  "created_at": "2026-05-11T16:57:06.303089882Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvN1J487zqZVsMBUIfutlEjY9l6EUAZCEpgVYR80UhtzJLTspOr5wzDa3zlZFpXZUohnfxyIne0+MIhABWj7PBg=="
+}
