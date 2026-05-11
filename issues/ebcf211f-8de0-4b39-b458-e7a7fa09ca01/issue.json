@@ -1,0 +1,12 @@
+{
+  "uuid": "ebcf211f-8de0-4b39-b458-e7a7fa09ca01",
+  "display_id": 1141,
+  "title": "FasterRCNN + MaskRCNN: implement RoIHeads postprocess (box decode + per-class NMS + mask postprocess)",
+  "description": "Surfaced by #1139. FasterRcnn::forward in ferrotorch-vision/src/models/detection/faster_rcnn.rs literally discards box_deltas at line ~408 ('let (class_logits, _box_deltas) = self.head.forward(&roi_tensor)?;'), returns RPN proposals as 'boxes', and skips per-class NMS / score-threshold / detections-per-image cap entirely. MaskRCNN inherits this and additionally returns per-proposal per-class mask logits without sigmoid / class selection / paste-back to image.\n\nTHIS IS A PRODUCTION CORRECTNESS BUG: users calling vision::get_model('fasterrcnn_resnet50_fpn', true, 91).forward(...) get garbage detections (RPN proposals with raw classifier scores).\n\nAcceptance:\n- FasterRCNN: implement BoxCoder.decode (probably needs new BoxCoder type) → per-class score-threshold → per-class NMS → detections-per-image cap. Match torchvision's RoIHeads.postprocess.\n- MaskRCNN: implement mask sigmoid + class selection + paste-back-to-original-image-resolution.\n- Re-run #1139 verification harness; both must PASS.\n- Discriminating tests for box decode, NMS, mask postprocess.\n\nEstimated scope: ~1000-1500 LoC. Substantial dispatch.\n\nConfidence: HIGH on diagnosis. The entire postprocess pipeline is missing — not a numerical bug.",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
+  "created_by": "y4rr",
+  "created_at": "2026-05-11T07:39:17.085127047Z",
+  "updated_at": "2026-05-11T07:39:17.085127047Z"
+}
