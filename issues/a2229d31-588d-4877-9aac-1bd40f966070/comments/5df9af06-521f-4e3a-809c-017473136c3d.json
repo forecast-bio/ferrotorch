@@ -1,0 +1,10 @@
+{
+  "uuid": "5df9af06-521f-4e3a-809c-017473136c3d",
+  "issue_uuid": "a2229d31-588d-4877-9aac-1bd40f966070",
+  "author": "y4rr",
+  "content": "Blocker: shuffled_droplast FAIL is structural. With Option B (SET-equality), rust+torch agree the set of items is identical EXCEPT when drop_last interacts with shuffle: rust's PRNG selects a different permutation than torch's, so when each side drops the last 2 items (10 items, batch=4, drop=>kept=8) they're dropping DIFFERENT items. Cannot pass with Option B. The fix is documented in dispatch: pin TWO trajectories (Option C extension). For shuffled_droplast specifically the harness should compare ferrotorch's iteration against a ferrotorch-side ground truth (or alternatively: take SET-equality only over BOTH sides' kept items unioned — but that gives a meaningless test).",
+  "created_at": "2026-05-11T23:09:11.077804080Z",
+  "kind": "blocker",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAq5Z01WQ3lGaAPuwZLaxgGOhr5x9K0ZF8ijkynyDOISPM9c29K+mszIpgfOR3lm+rPwN1TS+zyr5r1oRcg8NMBA=="
+}
