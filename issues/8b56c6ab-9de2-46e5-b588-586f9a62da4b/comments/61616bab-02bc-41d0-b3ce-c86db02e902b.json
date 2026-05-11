@@ -1,0 +1,10 @@
+{
+  "uuid": "61616bab-02bc-41d0-b3ce-c86db02e902b",
+  "issue_uuid": "8b56c6ab-9de2-46e5-b588-586f9a62da4b",
+  "author": "y4rr",
+  "content": "FCOS architecture added (fcos.rs, ~700 LoC). Anchor-free point regression: cell-center decode (cx-l, cy-t, cx+r, cy+b). Shared cls/reg heads across P3-P7 with GroupNorm(32). Per-level learned scale on reg. Centerness branch gates score: final=sqrt(cls_sigmoid * centerness_sigmoid). score_thresh=0.2, NMS_IoU=0.6, top-K=100. Pinned to ferrotorch/fcos_resnet50_fpn (SHA ed34c90097ca). PASS first-try with max_abs=1.46e-4.",
+  "created_at": "2026-05-11T14:14:10.439177745Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA7A6vGizjD8xoXzzDPtDsNaZjnWUSVj9Yh2Htd46T/wb4f2Ppm8tDz6iOA28vt9IsvGer+ALLBT73LhAc3rlBBQ=="
+}
