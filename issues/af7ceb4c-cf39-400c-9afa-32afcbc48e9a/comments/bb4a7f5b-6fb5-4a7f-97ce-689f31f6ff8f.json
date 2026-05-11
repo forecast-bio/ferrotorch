@@ -1,0 +1,10 @@
+{
+  "uuid": "bb4a7f5b-6fb5-4a7f-97ce-689f31f6ff8f",
+  "issue_uuid": "af7ceb4c-cf39-400c-9afa-32afcbc48e9a",
+  "author": "y4rr",
+  "content": "Decision: Option B (new ferrotorch-bert crate) over Option A (extend ferrotorch-llama). Rationale: BERT is encoder-only (no causal mask, sees full sequence), uses post-norm residual (add then norm vs Llama's pre-norm norm then add), learned positional embeddings (vs RoPE), LayerNorm (vs RMSNorm), GELU (vs SwiGLU), and includes token_type embeddings. While ferrotorch-llama's Linear/LayerNorm primitives come from ferrotorch-nn (and are shared), the layer composition is structurally different enough that lumping under 'llama' would be misleading. The crate name 'ferrotorch-bert' will host other encoder-only architectures (RoBERTa, DistilBERT, DeBERTa, etc) over time.",
+  "created_at": "2026-05-11T17:30:16.765386483Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAHi2btK9dDkUuFlf3WTjY9GWoD7P1OAaMQ3ijnqafhq6poCaHH6eJI3oU0Ey/C7SILdMXwx60DuiNq6HtrzLXAA=="
+}
