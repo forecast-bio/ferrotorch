@@ -823,6 +823,37 @@ def make_registry_fixtures() -> list[dict]:
             "num_parameters": 27161264,
             "format": "SafeTensors",
         },
+        # #1130: torchvision-canonical detection / segmentation models with
+        # pretrained safetensors pinned at `huggingface.co/ferrotorch/*`.
+        # `num_parameters` reflects torchvision 0.21's
+        # `sum(p.numel() for p in model.parameters())` on the pretrained
+        # checkpoint, recorded at conversion time by
+        # `scripts/pin_pretrained_weights.py`.
+        {
+            "name": "fasterrcnn_resnet50_fpn",
+            "num_parameters": 41755286,
+            "format": "SafeTensors",
+        },
+        {
+            "name": "maskrcnn_resnet50_fpn",
+            "num_parameters": 44401393,
+            "format": "SafeTensors",
+        },
+        {
+            "name": "deeplabv3_resnet50",
+            "num_parameters": 42004074,
+            "format": "SafeTensors",
+        },
+        {
+            "name": "fcn_resnet50",
+            "num_parameters": 35322218,
+            "format": "SafeTensors",
+        },
+        {
+            "name": "ssd300_vgg16",
+            "num_parameters": 35641826,
+            "format": "SafeTensors",
+        },
     ]
 
     fixtures = [

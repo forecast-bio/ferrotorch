@@ -206,70 +206,63 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::SafeTensors,
         num_parameters: 27_161_264,
     },
-    // #456 partial: Faster R-CNN with ResNet-50 FPN backbone.
-    // No authoritative public SafeTensors checkpoint identified yet;
-    // SHA-256 is the all-zero placeholder which causes download_and_verify
-    // to return Err(InvalidArgument) with a clear message (security audit #6,
-    // follow-up #456-weights). Until a checkpoint is pinned, `pretrained=true`
-    // fails fast rather than silently skipping verification.
+    // #1130: Faster R-CNN with ResNet-50 FPN backbone for object detection.
+    // Pinned from torchvision 0.21 `FasterRCNN_ResNet50_FPN_Weights.COCO_V1`,
+    // re-keyed into ferrotorch's `named_parameters()` layout by
+    // `scripts/pin_pretrained_weights.py`. See the README at
+    // `huggingface.co/ferrotorch/fasterrcnn_resnet50_fpn` for the verbatim
+    // upstream license and the per-model state_dict mapping notes.
+    // Parameter count matches torchvision's `sum(p.numel() ... )` for the
+    // upstream pretrained model exactly.
     ModelInfo {
         name: "fasterrcnn_resnet50_fpn",
-        description: "Faster R-CNN with ResNet-50 FPN backbone for object detection (#456 partial)",
+        description: "Faster R-CNN with ResNet-50 + FPN backbone for object detection (#1130, COCO_V1)",
         weights_url: "https://huggingface.co/ferrotorch/fasterrcnn_resnet50_fpn/resolve/main/model.safetensors",
-        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        weights_sha256: "40989f3946a96ee07f0ac1f5b02ec9babd74990d9d82204299220ffc486fbc53",
         format: WeightsFormat::SafeTensors,
-        // ResNet-50 (~25.6M) + FPN (~3.3M) + RPN (~1.2M) + TwoMLP head (~26M) ≈ 56M.
-        num_parameters: 56_000_000,
+        num_parameters: 41_755_286,
     },
-    // #964: Mask R-CNN with ResNet-50 FPN backbone + mask head.
-    // No authoritative public SafeTensors checkpoint identified yet;
-    // SHA-256 is the all-zero placeholder — pretrained=true fails fast
-    // until a checkpoint is pinned (follow-up #964-weights).
+    // #1130: Mask R-CNN with ResNet-50 FPN backbone + mask head.
+    // Pinned from torchvision 0.21 `MaskRCNN_ResNet50_FPN_Weights.COCO_V1`.
     ModelInfo {
         name: "maskrcnn_resnet50_fpn",
-        description: "Mask R-CNN with ResNet-50 FPN backbone for instance segmentation (#964)",
+        description: "Mask R-CNN with ResNet-50 + FPN backbone for instance segmentation (#1130, COCO_V1)",
         weights_url: "https://huggingface.co/ferrotorch/maskrcnn_resnet50_fpn/resolve/main/model.safetensors",
-        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        weights_sha256: "b5d943cf37f6db813f8330ee3297529d3449c2e58641102c6c9cd2d30d398fe5",
         format: WeightsFormat::SafeTensors,
-        // FasterRCNN (~56M) + MaskHead (~2.4M) + MaskPredictor (~200K) ≈ 59M.
-        num_parameters: 59_000_000,
+        num_parameters: 44_401_393,
     },
-    // #457: DeepLabV3 with ResNet-50 dilated backbone + ASPP head.
-    // No authoritative public SafeTensors checkpoint identified yet;
-    // SHA-256 is the all-zero placeholder — pretrained=true fails fast
-    // until a checkpoint is pinned (follow-up #457-weights).
+    // #1130: DeepLabV3 with ResNet-50 dilated backbone + ASPP head.
+    // Pinned from torchvision 0.21
+    // `DeepLabV3_ResNet50_Weights.COCO_WITH_VOC_LABELS_V1`.
     ModelInfo {
         name: "deeplabv3_resnet50",
-        description: "DeepLabV3 with ResNet-50 dilated backbone for semantic segmentation (#457)",
+        description: "DeepLabV3 with ResNet-50 dilated backbone for semantic segmentation (#1130, COCO+VOC labels)",
         weights_url: "https://huggingface.co/ferrotorch/deeplabv3_resnet50/resolve/main/model.safetensors",
-        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        weights_sha256: "88133b09e057aa20609436d8333ca812378a7bc727fe305275e2690eb2375dc1",
         format: WeightsFormat::SafeTensors,
-        // ResNet-50 dilated (~25.6M) + ASPP head (~13.6M) ≈ 39M.
-        num_parameters: 39_000_000,
+        num_parameters: 42_004_074,
     },
-    // #457: FCN with ResNet-50 backbone + FCN head.
+    // #1130: FCN with ResNet-50 backbone + FCN head.
+    // Pinned from torchvision 0.21
+    // `FCN_ResNet50_Weights.COCO_WITH_VOC_LABELS_V1`.
     ModelInfo {
         name: "fcn_resnet50",
-        description: "FCN with ResNet-50 backbone for semantic segmentation (#457)",
+        description: "FCN with ResNet-50 backbone for semantic segmentation (#1130, COCO+VOC labels)",
         weights_url: "https://huggingface.co/ferrotorch/fcn_resnet50/resolve/main/model.safetensors",
-        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        weights_sha256: "8419d91ad57f4156e3a6add39abd43caf0a3761083743fe0a5dddf470ffdabf7",
         format: WeightsFormat::SafeTensors,
-        // ResNet-50 (~25.6M) + FCN head (~2.6M) + ResNet fc (~0.5M) ≈ 29M.
-        num_parameters: 29_000_000,
+        num_parameters: 35_322_218,
     },
-    // #1099: SSD300 with VGG-16 backbone for object detection.
-    // No authoritative public SafeTensors checkpoint identified yet;
-    // SHA-256 is the all-zero placeholder — pretrained=true fails fast
-    // until a checkpoint is pinned (follow-up #1099-weights).
+    // #1130: SSD300 with VGG-16 backbone for object detection.
+    // Pinned from torchvision 0.21 `SSD300_VGG16_Weights.COCO_V1`.
     ModelInfo {
         name: "ssd300_vgg16",
-        description: "SSD300 with VGG-16 backbone for object detection (#1099)",
+        description: "SSD300 with VGG-16 backbone for object detection (#1130, COCO_V1)",
         weights_url: "https://huggingface.co/ferrotorch/ssd300_vgg16/resolve/main/model.safetensors",
-        weights_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        weights_sha256: "2db78702af742ec5882bc62e068e5337f366bc1dc00f069c34bbce91c5109dfe",
         format: WeightsFormat::SafeTensors,
-        // VGG-16 truncated backbone (~14.7M) + extras (~1.3M) + L2Norm (~0.5K)
-        // + SSD multibox head (~10.3M) ≈ 26M (torchvision ssd300_vgg16: 35.6M).
-        num_parameters: 26_000_000,
+        num_parameters: 35_641_826,
     },
 ];
 

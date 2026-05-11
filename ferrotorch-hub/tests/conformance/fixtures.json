@@ -604,7 +604,7 @@
     },
     {
       "op": "registry_list_models_count",
-      "expected_count": 19
+      "expected_count": 20
     },
     {
       "op": "registry_known_models",
@@ -686,22 +686,27 @@
         },
         {
           "name": "fasterrcnn_resnet50_fpn",
-          "num_parameters": 56000000,
+          "num_parameters": 41755286,
           "format": "SafeTensors"
         },
         {
           "name": "maskrcnn_resnet50_fpn",
-          "num_parameters": 59000000,
+          "num_parameters": 44401393,
           "format": "SafeTensors"
         },
         {
           "name": "deeplabv3_resnet50",
-          "num_parameters": 39000000,
+          "num_parameters": 42004074,
           "format": "SafeTensors"
         },
         {
           "name": "fcn_resnet50",
-          "num_parameters": 29000000,
+          "num_parameters": 35322218,
+          "format": "SafeTensors"
+        },
+        {
+          "name": "ssd300_vgg16",
+          "num_parameters": 35641826,
           "format": "SafeTensors"
         }
       ]
