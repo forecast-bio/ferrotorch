@@ -314,7 +314,7 @@ def _fill_resnet_fc_random(
         filled_ft.add(fc_b_key)
 
 
-def _map_fpn_with_bias_drop(
+def _map_fpn_with_bias(
     tv_sd: dict[str, torch.Tensor],
     tv_prefix: str,
     ft_prefix: str,
@@ -324,20 +324,26 @@ def _map_fpn_with_bias_drop(
     filled_ft: set[str],
     intentional_drop_tv: set[str],
 ) -> None:
-    """Map torchvision FPN weights into ferrotorch's bias-less FPN.
+    """Map torchvision FPN weights AND biases into ferrotorch's FPN.
 
-    torchvision FPN is `nn.Conv2d(..., bias=True)` for both lateral
-    (`inner_blocks.{i}.0`) and output (`layer_blocks.{i}.0`) convolutions.
-    ferrotorch's FPN was implemented with `bias=False` (see
-    `ferrotorch-vision/src/models/detection/fpn.rs`). This is a known
-    architectural mismatch: we map the conv weights cleanly and record
-    the torchvision FPN biases in `intentional_drop_tv` so the script's
-    coverage check still passes. The dropped biases are small (~256
-    floats × 8 layers ≈ 2k weights out of 41M); accuracy impact is
-    bounded by the bias magnitude.
+    Both torchvision (`nn.Conv2d(..., bias=True)`) and ferrotorch
+    (`Conv2d::new(..., bias=true)`) emit bias parameters on FPN
+    lateral (`inner_blocks.{i}.0`) and output (`layer_blocks.{i}.0`)
+    convolutions, so the mapping is now one-to-one.
+
+    Before #1141 fix, ferrotorch FPN used `bias=false`; the biases were
+    recorded in `intentional_drop_tv` and silently dropped — that drop
+    was the actual root cause of #1141 (FPN max-abs-diff vs torchvision
+    on a real COCO image was ~0.77 at p2 / 3.4 at p6, propagating to
+    multi-unit divergence in RPN cls_logits and a 924/1000 mismatch
+    in post-NMS proposals).
     """
     # torchvision: inner_blocks index 0..3 corresponds to C2..C5
     # ferrotorch:  lateral2..lateral5 (matching the same C2..C5).
+    # `intentional_drop_tv` is no longer mutated here — both weights and
+    # biases now map cleanly. Param kept for backwards-compat with the
+    # call sites (which still pass it for the dropouts in other heads).
+    _ = intentional_drop_tv
     for i, level in enumerate([2, 3, 4, 5]):
         tv_w = f"{tv_prefix}.inner_blocks.{i}.0.weight"
         ft_w = f"{ft_prefix}.lateral{level}.weight"
@@ -346,8 +352,13 @@ def _map_fpn_with_bias_drop(
         used_tv.add(tv_w)
         filled_ft.add(ft_w)
         tv_b = f"{tv_prefix}.inner_blocks.{i}.0.bias"
-        if tv_b in tv_sd:
-            intentional_drop_tv.add(tv_b)
+        ft_b = f"{ft_prefix}.lateral{level}.bias"
+        if tv_b not in tv_sd:
+            raise SystemExit(f"FPN bias missing in torchvision state_dict: {tv_b}")
+        _check_shape(ft_b, tv_sd[tv_b], ft_keys[ft_b])
+        out[ft_b] = tv_sd[tv_b]
+        used_tv.add(tv_b)
+        filled_ft.add(ft_b)
 
         tv_w = f"{tv_prefix}.layer_blocks.{i}.0.weight"
         ft_w = f"{ft_prefix}.output{level}.weight"
@@ -356,8 +367,13 @@ def _map_fpn_with_bias_drop(
         used_tv.add(tv_w)
         filled_ft.add(ft_w)
         tv_b = f"{tv_prefix}.layer_blocks.{i}.0.bias"
-        if tv_b in tv_sd:
-            intentional_drop_tv.add(tv_b)
+        ft_b = f"{ft_prefix}.output{level}.bias"
+        if tv_b not in tv_sd:
+            raise SystemExit(f"FPN bias missing in torchvision state_dict: {tv_b}")
+        _check_shape(ft_b, tv_sd[tv_b], ft_keys[ft_b])
+        out[ft_b] = tv_sd[tv_b]
+        used_tv.add(tv_b)
+        filled_ft.add(ft_b)
 
 
 def _map_fasterrcnn_heads(
@@ -412,7 +428,7 @@ def map_fasterrcnn_keys(
         out, used_tv, filled_ft,
     )
     _fill_resnet_fc_random(ft_keys, "backbone", out, filled_ft)
-    _map_fpn_with_bias_drop(
+    _map_fpn_with_bias(
         tv_sd, "backbone.fpn", "fpn", ft_keys,
         out, used_tv, filled_ft, intentional_drop_tv,
     )
@@ -436,7 +452,7 @@ def map_maskrcnn_keys(
         out, used_tv, filled_ft,
     )
     _fill_resnet_fc_random(ft_keys, "faster_rcnn.backbone", out, filled_ft)
-    _map_fpn_with_bias_drop(
+    _map_fpn_with_bias(
         tv_sd, "backbone.fpn", "faster_rcnn.fpn", ft_keys,
         out, used_tv, filled_ft, intentional_drop_tv,
     )

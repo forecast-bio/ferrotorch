@@ -214,23 +214,29 @@ static MODELS: &[ModelInfo] = &[
     // upstream license and the per-model state_dict mapping notes.
     // Parameter count matches torchvision's `sum(p.numel() ... )` for the
     // upstream pretrained model exactly.
+    // #1141: re-pinned with FPN biases included. The previous safetensors
+    // intentionally dropped torchvision's FPN bias params (8 × 256 floats)
+    // because ferrotorch's FPN was built with `bias=false`; that drop was
+    // the root cause of #1141 (FPN max-abs-diff ~0.77 at p2, propagating
+    // through the RPN to a 924/1000 post-NMS proposal mismatch).
     ModelInfo {
         name: "fasterrcnn_resnet50_fpn",
-        description: "Faster R-CNN with ResNet-50 + FPN backbone for object detection (#1130, COCO_V1)",
+        description: "Faster R-CNN with ResNet-50 + FPN backbone for object detection (#1130, COCO_V1; #1141 FPN-bias fix)",
         weights_url: "https://huggingface.co/ferrotorch/fasterrcnn_resnet50_fpn/resolve/main/model.safetensors",
-        weights_sha256: "40989f3946a96ee07f0ac1f5b02ec9babd74990d9d82204299220ffc486fbc53",
+        weights_sha256: "1d8a19e81e91f5ce86ce5a65127dda566d6ae1fb7e2e64596d1ecf373ed06494",
         format: WeightsFormat::SafeTensors,
-        num_parameters: 41_755_286,
+        num_parameters: 41_810_455,
     },
     // #1130: Mask R-CNN with ResNet-50 FPN backbone + mask head.
     // Pinned from torchvision 0.21 `MaskRCNN_ResNet50_FPN_Weights.COCO_V1`.
+    // #1141: re-pinned with FPN biases included (same fix as fasterrcnn).
     ModelInfo {
         name: "maskrcnn_resnet50_fpn",
-        description: "Mask R-CNN with ResNet-50 + FPN backbone for instance segmentation (#1130, COCO_V1)",
+        description: "Mask R-CNN with ResNet-50 + FPN backbone for instance segmentation (#1130, COCO_V1; #1141 FPN-bias fix)",
         weights_url: "https://huggingface.co/ferrotorch/maskrcnn_resnet50_fpn/resolve/main/model.safetensors",
-        weights_sha256: "b5d943cf37f6db813f8330ee3297529d3449c2e58641102c6c9cd2d30d398fe5",
+        weights_sha256: "dc472afa1ba8bb321c142b05c7f4a6ca20ee0ae191087d4e8f1030af7cfb3d2e",
         format: WeightsFormat::SafeTensors,
-        num_parameters: 44_401_393,
+        num_parameters: 44_456_562,
     },
     // #1130: DeepLabV3 with ResNet-50 dilated backbone + ASPP head.
     // Pinned from torchvision 0.21

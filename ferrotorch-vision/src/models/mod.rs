@@ -1,3 +1,4 @@
+pub mod bn_buffer_loader;
 pub mod convnext;
 pub mod densenet;
 pub mod detection;

@@ -20,7 +20,7 @@ fn maybe_load_pretrained<T, F, M>(
     build: F,
 ) -> FerrotorchResult<Box<dyn Module<T>>>
 where
-    T: Float,
+    T: Float + 'static,
     F: FnOnce() -> FerrotorchResult<M>,
     M: Module<T> + 'static,
 {
@@ -51,6 +51,18 @@ where
         // strict=false so missing keys (e.g. classifier head reshaped to
         // a custom num_classes) don't break loading the backbone.
         model.load_state_dict(&state_dict, false)?;
+        // `load_state_dict` walks `named_parameters` / `named_buffers`,
+        // but BN running statistics live in `Mutex<Vec<f64>>` outside
+        // the `Buffer<T>` abstraction and `num_batches_tracked` lives
+        // in `Mutex<usize>`. Both are silently dropped by the strict=
+        // false path. Apply them explicitly via the typed BN setters
+        // (lifted from the value-parity test harness; see
+        // `bn_buffer_loader` module docs and #1141 diagnosis for the
+        // full failure-mode analysis).
+        super::bn_buffer_loader::apply_bn_buffers_from_state_dict(
+            &model as &dyn Module<T>,
+            &state_dict,
+        )?;
     }
     Ok(Box::new(model))
 }

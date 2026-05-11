@@ -26,7 +26,7 @@ use ferrotorch_nn::module::Module;
 use ferrotorch_nn::parameter::Parameter;
 
 use crate::models::detection::anchor_utils::{AnchorGenerator, decode_boxes};
-use crate::ops::{clip_boxes_to_image, nms, remove_small_boxes};
+use crate::ops::{batched_nms, clip_boxes_to_image, remove_small_boxes};
 
 // ---------------------------------------------------------------------------
 // RPN head
@@ -182,8 +182,16 @@ impl<T: Float> Rpn<T> {
             .map(|t| (t.shape()[2], t.shape()[3]))
             .collect();
 
-        // Generate all anchors.
-        let all_anchors: Tensor<T> = self.anchor_gen.generate_anchors(&fm_sizes)?;
+        // Generate all anchors using torchvision-compatible per-dim strides
+        // derived from the padded image size, not the canonical per-level
+        // stride.  See `anchor_utils::generate_anchors_for_image` for the
+        // #1141 round-4 rationale (non-64-aligned padded image sizes give
+        // p6 stride `(image_h / 13, image_w / 17)` ≠ `(64, 64)`).
+        let img_h = cfg.image_size[0];
+        let img_w = cfg.image_size[1];
+        let all_anchors: Tensor<T> = self
+            .anchor_gen
+            .generate_anchors_for_image(&fm_sizes, (img_h, img_w))?;
         let anc_data = all_anchors.data_vec()?;
 
         // Collect objectness scores and deltas across levels.
@@ -228,16 +236,33 @@ impl<T: Float> Rpn<T> {
 
         let n_total = all_scores.len();
 
-        // ---- Pre-NMS top-K selection ----
-        let pre_n = cfg.pre_nms_top_n.min(n_total);
-        let mut order: Vec<usize> = (0..n_total).collect();
-        // Partial sort — keep top pre_n by descending score.
-        order.sort_unstable_by(|&a, &b| {
-            all_scores[b]
-                .partial_cmp(&all_scores[a])
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        order.truncate(pre_n);
+        // ---- Pre-NMS top-K selection (per FPN level) ----
+        //
+        // Mirrors torchvision `RegionProposalNetwork._get_top_n_idx`: pick the
+        // top `pre_nms_top_n` anchors **independently per level**, then
+        // concatenate. This is critical — global top-K across levels would
+        // disproportionately pick large-anchor levels and miss small objects.
+        let mut order: Vec<usize> = Vec::new();
+        let mut level_of: Vec<usize> = Vec::new();
+        for lv in 0..level_offsets.len() - 1 {
+            let start = level_offsets[lv];
+            let end = level_offsets[lv + 1];
+            let level_n = end - start;
+            let mut idx: Vec<usize> = (start..end).collect();
+            // Partial sort within this level by descending score.
+            idx.sort_unstable_by(|&a, &b| {
+                all_scores[b]
+                    .partial_cmp(&all_scores[a])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            let take = cfg.pre_nms_top_n.min(level_n);
+            for &i in idx.iter().take(take) {
+                order.push(i);
+                level_of.push(lv);
+            }
+        }
+        let pre_n = order.len();
+        let _ = n_total;
 
         // ---- Decode selected boxes ----
         let mut sel_anchors: Vec<f64> = Vec::with_capacity(pre_n * 4);
@@ -268,6 +293,8 @@ impl<T: Float> Rpn<T> {
         let keep_small = remove_small_boxes(&clipped, cfg.min_size)?;
 
         // ---- Score threshold ----
+        // torchvision uses `>=` for the score threshold (backwards-compat per
+        // `filter_proposals` comment).
         let keep_thresh: Vec<usize> = keep_small
             .into_iter()
             .filter(|&i| sel_scores[i] >= cfg.score_thresh)
@@ -278,16 +305,22 @@ impl<T: Float> Rpn<T> {
             return Tensor::from_storage(TensorStorage::cpu(vec![]), vec![0, 4], false);
         }
 
-        // ---- Build tensors for NMS ----
+        // ---- Build tensors for per-level NMS ----
+        //
+        // torchvision applies `batched_nms` keyed by FPN level so that
+        // proposals on different levels never suppress each other — important
+        // because each level has different scale characteristics.
         let nms_n = keep_thresh.len();
         let box_data = clipped.data_vec()?;
         let mut nms_boxes_data: Vec<f64> = Vec::with_capacity(nms_n * 4);
         let mut nms_scores_data: Vec<f64> = Vec::with_capacity(nms_n);
+        let mut nms_levels: Vec<u32> = Vec::with_capacity(nms_n);
         for &i in &keep_thresh {
             for k in 0..4 {
                 nms_boxes_data.push(box_data[i * 4 + k]);
             }
             nms_scores_data.push(sel_scores[i]);
+            nms_levels.push(level_of[i] as u32);
         }
 
         let nms_boxes_t = Tensor::from_storage(
@@ -298,7 +331,7 @@ impl<T: Float> Rpn<T> {
         let nms_scores_t =
             Tensor::from_storage(TensorStorage::cpu(nms_scores_data), vec![nms_n], false)?;
 
-        let keep_nms = nms(&nms_boxes_t, &nms_scores_t, cfg.nms_thresh)?;
+        let keep_nms = batched_nms::<f64>(&nms_boxes_t, &nms_scores_t, &nms_levels, cfg.nms_thresh)?;
 
         // ---- Post-NMS top-K ----
         let post_n = cfg.post_nms_top_n.min(keep_nms.len());

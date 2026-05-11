@@ -63,22 +63,29 @@ impl AnchorGenerator {
 
     /// Compute all base anchor templates (relative to a single cell centre)
     /// for a given `LevelConfig`. Returns a `[A, 4]` slice (x1 y1 x2 y2,
-    /// half-integer centred at the origin).
+    /// centred at the origin).
+    ///
+    /// Mirrors `torchvision.models.detection.anchor_utils.AnchorGenerator.generate_anchors`:
+    /// for each `(scale, ratio)` pair, `w = scale / sqrt(ratio)`, `h = scale * sqrt(ratio)`,
+    /// and the half-extents are **rounded** (`.round()`) before negation so the
+    /// resulting anchors are integer-aligned to match torchvision exactly. The
+    /// outer loop order also follows torchvision's `aspect_ratios × scales` (in
+    /// that order — each aspect ratio is paired with every scale).
     fn cell_anchors<T: Float>(cfg: &LevelConfig) -> FerrotorchResult<Vec<T>> {
-        let zero: T = cast(0.0f64)?;
-        let half: T = cast(0.5f64)?;
         let mut out = Vec::new();
-        for &size in &cfg.sizes {
-            for &ratio in &cfg.aspect_ratios {
-                // Width and height of the anchor at unit stride.
-                let area = size * size;
-                let w = (area / ratio).sqrt();
-                let h = w * ratio;
-                let half_w: T = cast(w * 0.5)?;
-                let half_h: T = cast(h * 0.5)?;
-                let _ = (zero, half);
-                out.push(-half_w); // x1
-                out.push(-half_h); // y1
+        // torchvision's `(w_ratios[:, None] * scales[None, :]).view(-1)`
+        // iterates aspect_ratios in the outer dimension and scales in the
+        // inner. With one size per level (the FasterRCNN default) this is
+        // simply 3 anchors per aspect ratio, all sharing the same scale.
+        for &ratio in &cfg.aspect_ratios {
+            let sqrt_r = ratio.sqrt();
+            for &size in &cfg.sizes {
+                let w = size / sqrt_r;
+                let h = size * sqrt_r;
+                let half_w: T = cast((w * 0.5).round())?;
+                let half_h: T = cast((h * 0.5).round())?;
+                out.push(cast::<f64, T>(0.0)? - half_w); // x1 = -half_w
+                out.push(cast::<f64, T>(0.0)? - half_h); // y1 = -half_h
                 out.push(half_w); // x2
                 out.push(half_h); // y2
             }
@@ -87,16 +94,69 @@ impl AnchorGenerator {
     }
 
     /// Generate anchors for **all levels** given the spatial sizes of each
-    /// feature map.
+    /// feature map, using `cfg.stride` as a square stride (for both H and
+    /// W).  Useful for unit tests that don't care about the exact strides
+    /// torchvision would compute for the image size.
+    ///
+    /// **Production callers should prefer `generate_anchors_for_image`** —
+    /// torchvision derives strides per dimension as
+    /// `(image_size[i] // grid_size[i])`, which is *not* a perfect match
+    /// for the canonical `[4,8,16,32,64]` strides when the padded image
+    /// size isn't a multiple of 64 (commonly the case at p6).
     ///
     /// `feature_map_sizes[i]` is `(H_i, W_i)` for level `i`.
     ///
     /// Returns a flat `[N_total, 4]` tensor — the concatenation of anchors
-    /// across all levels and all spatial positions. Mirrors
-    /// `AnchorGenerator.forward` in torchvision.
+    /// across all levels and all spatial positions.
     pub fn generate_anchors<T: Float>(
         &self,
         feature_map_sizes: &[(usize, usize)],
+    ) -> FerrotorchResult<Tensor<T>> {
+        let strides: Vec<(usize, usize)> = self
+            .configs
+            .iter()
+            .map(|c| (c.stride, c.stride))
+            .collect();
+        self.generate_anchors_with_strides(feature_map_sizes, &strides)
+    }
+
+    /// Generate anchors using torchvision-compatible per-dimension strides
+    /// derived from the input image size:
+    ///
+    /// ```text
+    /// stride_h = image_size.0 / grid_size.0
+    /// stride_w = image_size.1 / grid_size.1
+    /// ```
+    ///
+    /// This matches `AnchorGenerator.forward` in `torchvision.models.detection`,
+    /// where the strides are recomputed from the actual padded input shape
+    /// each call rather than read from the per-level config.  The
+    /// difference matters at p6 for non-64-aligned padded image sizes
+    /// (e.g. an 800×1088 input → p6 grid 13×17 → tv stride `(61, 64)` vs
+    /// the canonical 64×64). This was the #1141 round-4 diagnosis for the
+    /// remaining post-FPN-bias-fix divergence in proposal count.
+    pub fn generate_anchors_for_image<T: Float>(
+        &self,
+        feature_map_sizes: &[(usize, usize)],
+        image_size: (usize, usize),
+    ) -> FerrotorchResult<Tensor<T>> {
+        let strides: Vec<(usize, usize)> = feature_map_sizes
+            .iter()
+            .map(|&(fh, fw)| {
+                let sh = image_size.0.checked_div(fh).unwrap_or(1);
+                let sw = image_size.1.checked_div(fw).unwrap_or(1);
+                (sh, sw)
+            })
+            .collect();
+        self.generate_anchors_with_strides(feature_map_sizes, &strides)
+    }
+
+    /// Shared core for `generate_anchors` and `generate_anchors_for_image`.
+    /// `strides[i] == (stride_h, stride_w)` for level `i`.
+    fn generate_anchors_with_strides<T: Float>(
+        &self,
+        feature_map_sizes: &[(usize, usize)],
+        strides: &[(usize, usize)],
     ) -> FerrotorchResult<Tensor<T>> {
         assert_eq!(
             self.configs.len(),
@@ -106,21 +166,38 @@ impl AnchorGenerator {
             self.configs.len(),
             feature_map_sizes.len()
         );
+        assert_eq!(
+            self.configs.len(),
+            strides.len(),
+            "AnchorGenerator: number of strides ({}) must match number of \
+             levels ({})",
+            strides.len(),
+            self.configs.len()
+        );
 
         let zero: T = cast(0.0f64)?;
         let mut all_anchors: Vec<T> = Vec::new();
 
-        for (cfg, &(fh, fw)) in self.configs.iter().zip(feature_map_sizes.iter()) {
-            let stride_t: T = cast(cfg.stride as f64)?;
+        for (cfg, (&(fh, fw), &(sh, sw))) in self
+            .configs
+            .iter()
+            .zip(feature_map_sizes.iter().zip(strides.iter()))
+        {
+            let stride_h_t: T = cast(sh as f64)?;
+            let stride_w_t: T = cast(sw as f64)?;
             let base = Self::cell_anchors::<T>(cfg)?;
             let num_base = base.len() / 4; // A anchors per cell
 
             // Tile over (fy, fx) grid.
+            //
+            // Matches torchvision `grid_anchors`:
+            //   shifts_x = arange(0, grid_width) * stride_width
+            //   shifts_y = arange(0, grid_height) * stride_height
+            // (i.e. the cell **corner** is the centre, not `(fx + 0.5) * stride`).
             for fy in 0..fh {
                 for fx in 0..fw {
-                    // Centre of cell in image coords.
-                    let cx: T = (cast::<usize, T>(fx)? + cast::<f64, T>(0.5)?) * stride_t;
-                    let cy: T = (cast::<usize, T>(fy)? + cast::<f64, T>(0.5)?) * stride_t;
+                    let cx: T = cast::<usize, T>(fx)? * stride_w_t;
+                    let cy: T = cast::<usize, T>(fy)? * stride_h_t;
                     let _ = zero;
                     for a in 0..num_base {
                         all_anchors.push(cx + base[a * 4]); // x1
@@ -170,7 +247,9 @@ pub fn decode_boxes<T: Float>(
     let ww: T = cast(weights.2)?;
     let wh: T = cast(weights.3)?;
     let two: T = cast(2.0f64)?;
-    let log_box_max: T = cast(4.6051702f64)?; // log(100) — clamp to prevent overflow
+    // torchvision `_utils.BoxCoder.bbox_xform_clip = math.log(1000.0 / 16.0)`.
+    // Applied as a one-sided `max=` clamp on `dw`/`dh` — *not* symmetric.
+    let log_box_max: T = cast(4.135_166_556_742_356f64)?;
 
     let mut out = vec![cast::<f64, T>(0.0)?; n * 4];
     for i in 0..n {
@@ -186,8 +265,14 @@ pub fn decode_boxes<T: Float>(
 
         let dx = d[i * 4] / wx;
         let dy = d[i * 4 + 1] / wy;
-        let dw = clamp_t(d[i * 4 + 2] / ww, -log_box_max, log_box_max);
-        let dh = clamp_t(d[i * 4 + 3] / wh, -log_box_max, log_box_max);
+        let mut dw = d[i * 4 + 2] / ww;
+        let mut dh = d[i * 4 + 3] / wh;
+        if dw > log_box_max {
+            dw = log_box_max;
+        }
+        if dh > log_box_max {
+            dh = log_box_max;
+        }
 
         let px = dx * w + cx;
         let py = dy * h + cy;
@@ -201,17 +286,6 @@ pub fn decode_boxes<T: Float>(
     }
 
     Tensor::from_storage(TensorStorage::cpu(out), vec![n, 4], false)
-}
-
-#[inline]
-fn clamp_t<T: Float>(v: T, lo: T, hi: T) -> T {
-    if v < lo {
-        lo
-    } else if v > hi {
-        hi
-    } else {
-        v
-    }
 }
 
 #[inline]
@@ -255,6 +329,83 @@ mod tests {
             assert!(x1 < x2, "anchor {i}: x1={x1} >= x2={x2}");
             assert!(y1 < y2, "anchor {i}: y1={y1} >= y2={y2}");
         }
+    }
+
+    #[test]
+    fn test_anchor_generator_per_dim_stride_image_800x1088() {
+        // #1141: torchvision derives per-dim strides as
+        // `image_size[i] // grid_size[i]`. For a padded 800×1088 input
+        // the p6 grid is 13×17 → strides (61, 64) (NOT 64, 64). The
+        // canonical `generate_anchors([... fm sizes ...])` uses 64 for
+        // both dims and was the residual #1141 anchor divergence after
+        // the FPN fix.
+        let ag = AnchorGenerator::default_fasterrcnn();
+        let fm_sizes = vec![(200, 272), (100, 136), (50, 68), (25, 34), (13, 17)];
+        let image_size = (800usize, 1088usize);
+
+        // Sanity check: the p6 stride should be (61, 64), not (64, 64).
+        // p6 grid (13, 17) → stride_h = 800 / 13 = 61, stride_w = 1088 / 17 = 64.
+        let anchors_for_image = ag
+            .generate_anchors_for_image::<f32>(&fm_sizes, image_size)
+            .unwrap();
+        let anchors_canonical = ag.generate_anchors::<f32>(&fm_sizes).unwrap();
+
+        // Count of p6 anchors per level (3 anchors per cell × 13 × 17 = 663).
+        let p6_count = 13 * 17 * 3;
+        // Find the offset of p6 in the flat tensor.
+        let pre_p6: usize = fm_sizes
+            .iter()
+            .take(4)
+            .map(|&(h, w)| h * w * 3)
+            .sum();
+
+        let a = anchors_for_image.data_vec().unwrap();
+        let b = anchors_canonical.data_vec().unwrap();
+        // Verify p6 anchors differ between the canonical and image-derived
+        // call (this is the bug-reproducing assertion).
+        let mut max_diff = 0.0f32;
+        for i in 0..p6_count {
+            for k in 0..4 {
+                let idx = (pre_p6 + i) * 4 + k;
+                let d = (a[idx] - b[idx]).abs();
+                if d > max_diff {
+                    max_diff = d;
+                }
+            }
+        }
+        assert!(
+            max_diff > 1.0,
+            "p6 anchors must differ between canonical and per-dim-stride \
+             generation on an 800×1088 image (regression on stride bug); \
+             max_diff={max_diff}"
+        );
+
+        // Verify the bottom-row p6 anchors land at the expected y center.
+        // Last row of p6 (fy=12) with stride_h=61: cy = 12 * 61 = 732.
+        // Aspect ratio 1.0, size 512 → base anchor (-256, -256, 256, 256).
+        // So last-row first-col first-anchor row 1 box: [-23-? wait wrong]
+        // Simpler: in the image-derived case, the LARGEST y coord seen
+        // among p6 anchors is at fy=12 (cy=732) plus the largest half_h.
+        // Half-h for (size=512, ratio=2.0): h=512*sqrt(2)≈724, half=362
+        //   so max y2 = 732 + 362 = 1094.
+        // In the canonical case (stride 64): cy = 12*64 = 768 → 768 + 362 = 1130.
+        let mut max_y2_image = f32::MIN;
+        let mut max_y2_canon = f32::MIN;
+        for i in 0..p6_count {
+            let y2_img = a[(pre_p6 + i) * 4 + 3];
+            let y2_can = b[(pre_p6 + i) * 4 + 3];
+            if y2_img > max_y2_image {
+                max_y2_image = y2_img;
+            }
+            if y2_can > max_y2_canon {
+                max_y2_canon = y2_can;
+            }
+        }
+        assert!(
+            max_y2_image < max_y2_canon - 10.0,
+            "image-derived p6 anchors must have smaller max y2 (stride 61 \
+             vs canonical 64): image={max_y2_image}, canonical={max_y2_canon}",
+        );
     }
 
     #[test]

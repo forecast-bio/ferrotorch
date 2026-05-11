@@ -3110,195 +3110,14 @@ mod value_parity_pipeline {
         Ok(())
     }
 
-    /// Suffix → typed-setter dispatcher used by the loader.
-    ///
-    /// Recognised suffixes (any other suffix returns
-    /// [`FerrotorchError::InvalidArgument`]):
-    ///
-    /// | Suffix | Source | Sink |
-    /// |--------|--------|------|
-    /// | `.running_mean` | `state[key]: Tensor<f32>` (1D, len = `num_features`) | `BatchNormNd::set_running_mean` |
-    /// | `.running_var`  | `state[key]: Tensor<f32>` (1D, len = `num_features`) | `BatchNormNd::set_running_var`  |
-    /// | `.num_batches_tracked` | the trailing 1-element f32 tensor cast to `usize` | `BatchNormNd::set_num_batches_tracked` |
-    ///
-    /// `num_batches_tracked` is technically int64 in PyTorch state dicts;
-    /// the existing safetensors fixtures exclude that dtype (see
-    /// `skipped_int_buffer_keys` and the `assert_fixture_well_formed`
-    /// guard), so the loader treats it as f32 here for forward-compat
-    /// when a future fixture round-trips it through f32 storage.
-    ///
-    /// `dispatch_bn_buffer` is the concrete-type-aware helper that
-    /// closes the type-erased gap between `&dyn Module<f32>` and the
-    /// three concrete BN setter surfaces. It is the single source of
-    /// truth for "which BN type is this and which setter applies."
-    /// Outcome of a single BN-buffer dispatch attempt. Distinguishes
-    /// "applied to a real BN setter" from "skipped because the module
-    /// doesn't opt into as_any" so the caller can log the silent
-    /// fallback path tracked under #995.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum BnBufferDispatchOutcome {
-        /// One of `BatchNorm{1,2,3}d<f32>::set_*` was invoked.
-        Applied,
-        /// Module exists at `bn_path` but did not expose an `as_any`
-        /// downcast hook — Phase 1A-style silent fallback (#995).
-        SkippedNoAsAny,
-    }
-
-    fn dispatch_bn_buffer(
-        model_label: &str,
-        full_key: &str,
-        bn_path: &str,
-        suffix: &str,
-        bn_module: &dyn Module<f32>,
-        value: &Tensor<f32>,
-    ) -> FerrotorchResult<BnBufferDispatchOutcome> {
-        // Phase 2 redirect (#984 → #995): if the module at `bn_path` does
-        // not opt into the as_any downcast hook, gracefully fall back to
-        // Phase 1A behaviour — record the expectation, do NOT error. This
-        // preserves the resnet50 fixture path while the vision-side
-        // `named_children` override gap is tracked separately under #995.
-        let Some(any) = bn_module.as_any() else {
-            return Ok(BnBufferDispatchOutcome::SkippedNoAsAny);
-        };
-
-        // Reading f32 buffer payload as a flat slice. The state dict only
-        // stores 1-D tensors here (per torchvision's BN buffer schema +
-        // the descriptor's running_mean/running_var entries).
-        let value_data = value.data().map_err(|e| FerrotorchError::InvalidArgument {
-            message: format!(
-                "{model_label} value-parity loader: failed to read buffer \
-                 \"{full_key}\" as CPU slice: {e}"
-            ),
-        })?;
-
-        // Try each concrete BN type in turn. Only one will match; mismatch
-        // is a hard error so we never silently skip a buffer that was
-        // routed to a module which DID opt into as_any but isn't BN —
-        // that scenario means a non-BN type wrongly opted in and is a
-        // Phase 2 invariant violation.
-        if let Some(bn) = any.downcast_ref::<BatchNorm2d<f32>>() {
-            apply_bn_suffix_2d(model_label, full_key, suffix, bn, value_data)?;
-            return Ok(BnBufferDispatchOutcome::Applied);
-        }
-        if let Some(bn) = any.downcast_ref::<BatchNorm1d<f32>>() {
-            apply_bn_suffix_1d(model_label, full_key, suffix, bn, value_data)?;
-            return Ok(BnBufferDispatchOutcome::Applied);
-        }
-        if let Some(bn) = any.downcast_ref::<BatchNorm3d<f32>>() {
-            apply_bn_suffix_3d(model_label, full_key, suffix, bn, value_data)?;
-            return Ok(BnBufferDispatchOutcome::Applied);
-        }
-
-        Err(FerrotorchError::InvalidArgument {
-            message: format!(
-                "{model_label} value-parity loader: BN buffer key \"{full_key}\" \
-                 routed to module path \"{bn_path}\" whose as_any downcast \
-                 matched none of BatchNorm{{1,2,3}}d<f32> (Phase 2 invariant: \
-                 only BN modules opt into the as_any hook)"
-            ),
-        })
-    }
-
-    fn apply_bn_suffix_2d(
-        model_label: &str,
-        full_key: &str,
-        suffix: &str,
-        bn: &BatchNorm2d<f32>,
-        value: &[f32],
-    ) -> FerrotorchResult<()> {
-        match suffix {
-            "running_mean" => bn.set_running_mean(value),
-            "running_var" => bn.set_running_var(value),
-            "num_batches_tracked" => {
-                let nbt = bn_nbt_from_slice(model_label, full_key, value)?;
-                bn.set_num_batches_tracked(nbt)
-            }
-            other => Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "{model_label} value-parity loader: BN buffer key \"{full_key}\" \
-                     has unrecognised suffix \"{other}\" (expected one of \
-                     running_mean / running_var / num_batches_tracked)"
-                ),
-            }),
-        }
-    }
-
-    fn apply_bn_suffix_1d(
-        model_label: &str,
-        full_key: &str,
-        suffix: &str,
-        bn: &BatchNorm1d<f32>,
-        value: &[f32],
-    ) -> FerrotorchResult<()> {
-        match suffix {
-            "running_mean" => bn.set_running_mean(value),
-            "running_var" => bn.set_running_var(value),
-            "num_batches_tracked" => {
-                let nbt = bn_nbt_from_slice(model_label, full_key, value)?;
-                bn.set_num_batches_tracked(nbt)
-            }
-            other => Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "{model_label} value-parity loader: BN buffer key \"{full_key}\" \
-                     has unrecognised suffix \"{other}\""
-                ),
-            }),
-        }
-    }
-
-    fn apply_bn_suffix_3d(
-        model_label: &str,
-        full_key: &str,
-        suffix: &str,
-        bn: &BatchNorm3d<f32>,
-        value: &[f32],
-    ) -> FerrotorchResult<()> {
-        match suffix {
-            "running_mean" => bn.set_running_mean(value),
-            "running_var" => bn.set_running_var(value),
-            "num_batches_tracked" => {
-                let nbt = bn_nbt_from_slice(model_label, full_key, value)?;
-                bn.set_num_batches_tracked(nbt)
-            }
-            other => Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "{model_label} value-parity loader: BN buffer key \"{full_key}\" \
-                     has unrecognised suffix \"{other}\""
-                ),
-            }),
-        }
-    }
-
-    /// Decode a single-element f32 tensor as a non-negative integer batch
-    /// counter. Used when a future fixture rehydrates `num_batches_tracked`
-    /// (currently excluded from the f32 safetensors payload).
-    fn bn_nbt_from_slice(
-        model_label: &str,
-        full_key: &str,
-        value: &[f32],
-    ) -> FerrotorchResult<usize> {
-        if value.len() != 1 {
-            return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "{model_label} value-parity loader: num_batches_tracked \
-                     buffer \"{full_key}\" must be a 1-element tensor, got \
-                     length {}",
-                    value.len()
-                ),
-            });
-        }
-        let v = value[0];
-        if !v.is_finite() || v < 0.0 || v.fract() != 0.0 {
-            return Err(FerrotorchError::InvalidArgument {
-                message: format!(
-                    "{model_label} value-parity loader: num_batches_tracked \
-                     buffer \"{full_key}\" must be a non-negative integer, \
-                     got {v}"
-                ),
-            });
-        }
-        Ok(v as usize)
-    }
+    // Per-suffix BN setter dispatch + `dispatch_bn_buffer` (Phase 2
+    // typed-setter pipeline) used to live here. They were lifted to
+    // the production module `ferrotorch_vision::models::bn_buffer_loader`
+    // so `maybe_load_pretrained` can apply BN running stats from a
+    // safetensors state dict (#1141 root cause). The test-side
+    // helper `apply_bn_buffers_from_state_dict` (below) now delegates
+    // to the production loader and adds back the descriptor-driven
+    // diagnostic summary callers of the test harness rely on.
 
     /// Walk the module tree once, dispatch every expected buffer key.
     ///
@@ -3326,69 +3145,62 @@ mod value_parity_pipeline {
         state: &StateDict<f32>,
         expected_buffer_keys: &[String],
     ) -> FerrotorchResult<()> {
-        // Build path → module index. Object-safe traversal: prepend the
-        // root path "" + the descendant paths from named_descendants_dyn.
-        // We stash everything in a HashMap so lookups are O(1) per buffer.
+        // Pre-flight: every `expected_buffer_keys` entry must have a
+        // `.<suffix>` component — the previous test-side body errored
+        // here, and the production loader has no equivalent check
+        // (it iterates state keys, which by this point already pass
+        // structural admission in the caller). Preserve the existing
+        // diagnostic so descriptor-malformed fixtures still fail
+        // loudly with the same message.
+        for full_key in expected_buffer_keys {
+            if full_key.rsplit_once('.').is_none() {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "{model_label} value-parity loader: BN buffer key \
+                         \"{full_key}\" has no `.<suffix>` component"
+                    ),
+                });
+            }
+        }
+
+        // Delegate to the production loader. The production module
+        // iterates `state.keys()` and applies any BN-suffix key; the
+        // test's structural checks (1) + (4) above guarantee
+        // `{BN-suffix keys in state} == expected_buffer_keys`, so the
+        // two iteration domains coincide.
+        ferrotorch_vision::models::bn_buffer_loader::apply_bn_buffers_from_state_dict::<f32>(
+            model, state,
+        )?;
+
+        // Diagnostic-only summary: in Phase 1A this surfaced when a
+        // fixture's BN buffers were silently deferred (unreachable
+        // path / no as_any). The production loader returns Ok in both
+        // cases, so we re-derive the same counts here for test stderr
+        // visibility — preserving the #995-tracking diagnostic for
+        // any model that still hasn't closed the `named_children`
+        // gap. Logic mirrors the production loader exactly.
         let mut path_to_module: std::collections::HashMap<String, &dyn Module<f32>> =
             std::collections::HashMap::new();
         path_to_module.insert(String::new(), model);
         for (name, child) in model.named_descendants_dyn() {
             path_to_module.insert(name, child);
         }
-
         let mut applied_count: usize = 0usize;
         let mut skipped_unreachable: Vec<&str> = Vec::new();
         let mut skipped_no_as_any: Vec<&str> = Vec::new();
-
         for full_key in expected_buffer_keys {
-            // Split off the trailing `.<suffix>`.
-            let (bn_path, suffix) = match full_key.rsplit_once('.') {
-                Some((path, suffix)) => (path, suffix),
-                None => {
-                    return Err(FerrotorchError::InvalidArgument {
-                        message: format!(
-                            "{model_label} value-parity loader: BN buffer key \
-                             \"{full_key}\" has no `.<suffix>` component"
-                        ),
-                    });
-                }
-            };
-
-            // Phase 2 redirect (#984 → #995): if the module path is not
-            // reachable from `named_descendants_dyn()` (because the
-            // model has not overridden `Module::named_children`), the
-            // loader falls back to Phase 1A behaviour — record the
-            // expectation in the skip list but do NOT error. The
-            // structural well-formedness of the state dict has already
-            // been verified by checks (1)/(4) at this point.
+            // `rsplit_once('.')` cannot fail here: pre-flight check above.
+            let (bn_path, _suffix) = full_key.rsplit_once('.').unwrap();
             let Some(bn_module) = path_to_module.get(bn_path).copied() else {
                 skipped_unreachable.push(full_key.as_str());
                 continue;
             };
-
-            let value = state
-                .get(full_key)
-                .ok_or_else(|| FerrotorchError::InvalidArgument {
-                    message: format!(
-                        "{model_label} value-parity loader: BN buffer key \
-                     \"{full_key}\" missing from state dict (should have \
-                     been caught by check (4))"
-                    ),
-                })?;
-
-            match dispatch_bn_buffer(model_label, full_key, bn_path, suffix, bn_module, value)? {
-                BnBufferDispatchOutcome::Applied => applied_count += 1,
-                BnBufferDispatchOutcome::SkippedNoAsAny => {
-                    skipped_no_as_any.push(full_key.as_str());
-                }
+            if bn_module.as_any().is_none() {
+                skipped_no_as_any.push(full_key.as_str());
+                continue;
             }
+            applied_count += 1;
         }
-
-        // Diagnostic-only logging: surfaces when a fixture's BN buffers
-        // were silently deferred so a future #995 fix can confirm they
-        // started flowing through. Goes to test stderr, not the
-        // assertion stream — no behaviour change relative to Phase 1A
-        // for callers that expect the loader to succeed.
         if !skipped_unreachable.is_empty() || !skipped_no_as_any.is_empty() {
             eprintln!(
                 "{model_label} value-parity loader: BN-buffer dispatch summary — \

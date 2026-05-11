@@ -31,6 +31,9 @@ use ferrotorch_nn::module::Module;
 use ferrotorch_nn::parameter::Parameter;
 
 use crate::models::detection::fpn::FeaturePyramidNetwork;
+use crate::models::detection::roi_heads_postprocess::{
+    PostprocessedDetections, postprocess_detections,
+};
 use crate::models::detection::rpn::{Rpn, RpnConfig};
 use crate::models::feature_extractor::IntermediateFeatures;
 use crate::models::resnet::{ResNet, resnet50};
@@ -77,14 +80,16 @@ fn assign_fpn_levels<T: Float>(
 
 /// Per-image detection output.
 ///
-/// Mirrors `torchvision.models.detection.GeneralizedRCNN` output format.
+/// Mirrors `torchvision.models.detection.GeneralizedRCNN` output format after
+/// `RoIHeads.postprocess_detections`: one row per surviving detection (post-NMS,
+/// post-top-K). Background (class 0) is never emitted.
 #[derive(Debug, Clone)]
 pub struct Detections<T: Float> {
     /// Predicted boxes `[N_det, 4]` in xyxy pixel coords.
     pub boxes: Tensor<T>,
-    /// Class scores (softmax probabilities) `[N_det, num_classes]`.
+    /// Per-detection score (softmax probability of the predicted class), `[N_det]`.
     pub scores: Tensor<T>,
-    /// Predicted class label (0-indexed, background = 0) `[N_det]` as f32.
+    /// Predicted class label `[N_det]` (always `>= 1` — background is dropped).
     pub labels: Vec<usize>,
 }
 
@@ -235,6 +240,13 @@ impl<T: Float> FasterRcnn<T> {
         })
     }
 
+    /// Borrow the inner `Rpn` (used by the #1141 per-stage probe to drive
+    /// the head + anchor generator directly). Read-only — production
+    /// callers should go through `FasterRcnn::forward`.
+    pub fn rpn(&self) -> &Rpn<T> {
+        &self.rpn
+    }
+
     /// Run backbone only and return the four intermediate feature maps.
     ///
     /// Returns `HashMap` with keys `"layer1"`, `"layer2"`, `"layer3"`,
@@ -313,7 +325,7 @@ impl<T: Float> FasterRcnn<T> {
                     boxes: Tensor::from_storage(TensorStorage::cpu(vec![]), vec![0, 4], false)?,
                     scores: Tensor::from_storage(
                         TensorStorage::cpu(vec![]),
-                        vec![0, self.num_classes],
+                        vec![0usize],
                         false,
                     )?,
                     labels: vec![],
@@ -405,28 +417,26 @@ impl<T: Float> FasterRcnn<T> {
             )?;
 
             // ---- Detection head ----
-            let (class_logits, _box_deltas) = self.head.forward(&roi_tensor)?;
+            let (class_logits, box_deltas) = self.head.forward(&roi_tensor)?;
 
-            // Softmax over class logits to get per-class probabilities.
-            let scores = softmax_2d(&class_logits)?;
-            let scores_data = scores.data_vec()?;
-
-            // Argmax label per proposal.
-            let labels: Vec<usize> = (0..n_proposals)
-                .map(|i| {
-                    let row = &scores_data[i * self.num_classes..(i + 1) * self.num_classes];
-                    row.iter()
-                        .enumerate()
-                        .max_by(|(_, a), (_, b)| {
-                            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-                        })
-                        .map(|(idx, _)| idx)
-                        .unwrap_or(0)
-                })
-                .collect();
+            // ---- RoIHeads postprocess (softmax → BoxCoder decode → clip →
+            //      drop background → score-thresh → small-box filter → per-class
+            //      NMS → cross-class top-K). Mirrors torchvision exactly. ----
+            let PostprocessedDetections {
+                boxes,
+                scores,
+                labels,
+            } = postprocess_detections::<T>(
+                &class_logits,
+                &box_deltas,
+                &proposals,
+                [img_h, img_w],
+            )?;
+            // Silence "unused" if n_proposals only used in shape check above.
+            let _ = n_proposals;
 
             per_image_detections.push(Detections {
-                boxes: proposals,
+                boxes,
                 scores,
                 labels,
             });
@@ -439,6 +449,11 @@ impl<T: Float> FasterRcnn<T> {
     pub fn num_parameters(&self) -> usize {
         self.parameters().iter().map(|p| p.numel()).sum()
     }
+
+    /// Number of detection classes including background at index 0.
+    pub fn num_classes(&self) -> usize {
+        self.num_classes
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -449,12 +464,13 @@ impl<T: Float> Module<T> for FasterRcnn<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // Module::forward is required for the registry but the primary API is
         // `FasterRcnn::forward` which returns `Vec<Detections<T>>`.
-        // Here we return the class logits for the first image as a convenience.
+        // Convention (matches #1139 verification harness): expose the
+        // post-NMS, post-top-K per-detection scores of the first image as a
+        // 1-D `[N_det]` tensor, matching `torchvision`'s
+        // `model(img)[0]["scores"]`.
         let dets = FasterRcnn::forward(self, input)?;
         if dets.is_empty() || dets[0].scores.shape()[0] == 0 {
-            // Return a [0, num_classes] tensor when no detections.
-            let nc = self.num_classes;
-            return Tensor::from_storage(TensorStorage::cpu(vec![]), vec![0, nc], false);
+            return Tensor::from_storage(TensorStorage::cpu(vec![]), vec![0usize], false);
         }
         Ok(dets[0].scores.clone())
     }
@@ -548,34 +564,6 @@ fn slice_batch_item<T: Float>(t: &Tensor<T>, b: usize) -> FerrotorchResult<Tenso
     Tensor::from_storage(TensorStorage::cpu(slice), vec![1, c, h, w], false)
 }
 
-/// Row-wise softmax for a `[N, C]` tensor.
-fn softmax_2d<T: Float>(logits: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
-    let n = logits.shape()[0];
-    let c = logits.shape()[1];
-    let data = logits.data_vec()?;
-    let mut out = vec![cast::<f64, T>(0.0)?; n * c];
-    for i in 0..n {
-        let row = &data[i * c..(i + 1) * c];
-        // Numerically stable: subtract max.
-        let max_val = row
-            .iter()
-            .copied()
-            .fold(row[0], |acc, x| if x > acc { x } else { acc });
-        let exps: Vec<f64> = row
-            .iter()
-            .map(|&v| {
-                let diff = v.to_f64().unwrap_or(0.0) - max_val.to_f64().unwrap_or(0.0);
-                diff.exp()
-            })
-            .collect();
-        let sum: f64 = exps.iter().sum();
-        for j in 0..c {
-            out[i * c + j] = cast::<f64, T>(exps[j] / sum)?;
-        }
-    }
-    Tensor::from_storage(TensorStorage::cpu(out), vec![n, c], false)
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -627,12 +615,14 @@ mod tests {
         let dets = no_grad(|| model.forward(&img).unwrap());
         assert_eq!(dets.len(), 1, "one detection list per image");
         let d = &dets[0];
-        // boxes [N, 4], scores [N, 91].
+        // Post-NMS shape: boxes [N_det, 4], scores [N_det], labels len N_det.
         assert_eq!(d.boxes.shape().len(), 2);
         assert_eq!(d.boxes.shape()[1], 4);
-        assert_eq!(d.scores.shape().len(), 2);
-        assert_eq!(d.scores.shape()[1], 91);
+        assert_eq!(d.scores.shape().len(), 1);
+        assert_eq!(d.scores.shape()[0], d.boxes.shape()[0]);
         assert_eq!(d.labels.len(), d.boxes.shape()[0]);
+        // Background label (0) is dropped by the postprocess.
+        assert!(d.labels.iter().all(|&l| l >= 1), "no background labels");
     }
 
     #[test]

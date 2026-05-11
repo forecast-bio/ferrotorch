@@ -30,8 +30,10 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Tensor};
-use ferrotorch_nn::{InterpolateMode, interpolate};
+use ferrotorch_nn::{InterpolateMode, Module, interpolate};
 use ferrotorch_vision::io::read_image_as_tensor;
+use ferrotorch_vision::models::bn_buffer_loader::apply_bn_buffers_from_state_dict;
+use ferrotorch_vision::models::detection::{MaskRcnn, maskrcnn_resnet50_fpn};
 use ferrotorch_vision::models::get_model;
 
 fn parse_args() -> Result<(String, PathBuf, PathBuf), String> {
@@ -273,6 +275,115 @@ fn dump_tensor(t: &Tensor<f32>, path: &PathBuf) -> FerrotorchResult<()> {
     Ok(())
 }
 
+/// Build, weight-load, and run a MaskRcnn directly (not via the registry's
+/// `Box<dyn Module>`) so we can extract the full `MaskDetections` (boxes +
+/// scores + masks). The registry's `Module::forward` only returns masks
+/// `[N_det, 1, H, W]`, which is insufficient for mAP-style object matching
+/// (round-9 #1141: per-rank pairing is structurally wrong; the harness needs
+/// per-detection boxes to pair rust↔tv by box-IoU > 0.5 before comparing
+/// masks).
+///
+/// Replicates `models::registry::maybe_load_pretrained`'s weight-loading
+/// exactly: hub lookup → safetensors load → `load_state_dict(strict=false)`
+/// → BN buffer apply.
+fn run_maskrcnn_dump(input: &Tensor<f32>, output_path: &PathBuf) -> Result<(), String> {
+    let mut model = maskrcnn_resnet50_fpn::<f32>(91)
+        .map_err(|e| format!("maskrcnn_resnet50_fpn: {e}"))?;
+    let info = ferrotorch_hub::registry::get_model_info("maskrcnn_resnet50_fpn")
+        .ok_or_else(|| {
+            "ferrotorch_hub::registry: no entry for 'maskrcnn_resnet50_fpn'".to_string()
+        })?;
+    let cache = ferrotorch_hub::cache::HubCache::with_default_dir();
+    let path = ferrotorch_hub::download::download_weights(info, &cache)
+        .map_err(|e| format!("download_weights: {e}"))?;
+    let state_dict = match info.format {
+        ferrotorch_hub::registry::WeightsFormat::SafeTensors => {
+            ferrotorch_serialize::load_safetensors::<f32>(&path)
+                .map_err(|e| format!("load_safetensors: {e}"))?
+        }
+        ferrotorch_hub::registry::WeightsFormat::FerrotorchStateDict => {
+            ferrotorch_serialize::load_state_dict::<f32>(&path)
+                .map_err(|e| format!("load_state_dict: {e}"))?
+        }
+    };
+    model
+        .load_state_dict(&state_dict, false)
+        .map_err(|e| format!("load_state_dict (apply): {e}"))?;
+    apply_bn_buffers_from_state_dict(&model as &dyn Module<f32>, &state_dict)
+        .map_err(|e| format!("apply_bn_buffers: {e}"))?;
+    model.eval();
+    eprintln!("[inference_dump] maskrcnn loaded; running MaskRcnn::forward...");
+
+    let dets = MaskRcnn::forward(&model, input).map_err(|e| format!("forward: {e}"))?;
+    let img_h = input.shape()[2];
+    let img_w = input.shape()[3];
+
+    // Pull first-image detections (we only ever pass batch=1).
+    let (masks, boxes, scores) = if let Some(d) = dets.into_iter().next() {
+        (d.masks, d.boxes, d.scores)
+    } else {
+        // Zero detections — emit empty tensors with correct shapes.
+        let masks = Tensor::from_storage(
+            ferrotorch_core::TensorStorage::cpu(vec![]),
+            vec![0, 1, img_h, img_w],
+            false,
+        )
+        .map_err(|e| format!("empty masks: {e}"))?;
+        let boxes = Tensor::from_storage(
+            ferrotorch_core::TensorStorage::cpu(vec![]),
+            vec![0, 4],
+            false,
+        )
+        .map_err(|e| format!("empty boxes: {e}"))?;
+        let scores = Tensor::from_storage(
+            ferrotorch_core::TensorStorage::cpu(vec![]),
+            vec![0],
+            false,
+        )
+        .map_err(|e| format!("empty scores: {e}"))?;
+        (masks, boxes, scores)
+    };
+
+    eprintln!(
+        "[inference_dump] maskrcnn output: masks={:?}, boxes={:?}, scores={:?}",
+        masks.shape(),
+        boxes.shape(),
+        scores.shape()
+    );
+
+    // Primary output: masks, matching the existing convention.
+    dump_tensor(&masks, output_path).map_err(|e| format!("dump_tensor masks: {e}"))?;
+
+    // Companion files: `<output>.boxes.bin` and `<output>.scores.bin`. These
+    // carry the per-detection metadata needed by the harness to pair rust↔tv
+    // detections by box-IoU (mAP-style matching) instead of by score rank
+    // (which is structurally wrong — see #1141 round-9 diagnosis).
+    let boxes_path = {
+        let mut p = output_path.clone();
+        let fname = format!(
+            "{}.boxes.bin",
+            output_path.file_name().and_then(|n| n.to_str()).unwrap_or("out")
+        );
+        p.set_file_name(fname);
+        p
+    };
+    let scores_path = {
+        let mut p = output_path.clone();
+        let fname = format!(
+            "{}.scores.bin",
+            output_path.file_name().and_then(|n| n.to_str()).unwrap_or("out")
+        );
+        p.set_file_name(fname);
+        p
+    };
+    dump_tensor(&boxes, &boxes_path).map_err(|e| format!("dump_tensor boxes: {e}"))?;
+    dump_tensor(&scores, &scores_path).map_err(|e| format!("dump_tensor scores: {e}"))?;
+    eprintln!(
+        "[inference_dump] dumped masks={output_path:?}, boxes={boxes_path:?}, scores={scores_path:?}"
+    );
+    Ok(())
+}
+
 fn main() -> Result<(), String> {
     let (model_name, image_path, output_path) = parse_args()?;
     let num_classes = num_classes_for(&model_name)?;
@@ -288,6 +399,13 @@ fn main() -> Result<(), String> {
     let input =
         preprocess_for_model(&model_name, raw).map_err(|e| format!("preprocess: {e}"))?;
     eprintln!("[inference_dump] preprocessed shape: {:?}", input.shape());
+
+    // MaskRCNN takes a custom path so we can dump boxes + scores alongside
+    // the masks (the Module::forward registry path only exposes the masks).
+    // This is harness instrumentation only — no model code is changed.
+    if model_name == "maskrcnn_resnet50_fpn" {
+        return run_maskrcnn_dump(&input, &output_path);
+    }
 
     // Build model via the architect-mandated registry path; this loads
     // pretrained weights from the local hub cache (pinned in #1130).

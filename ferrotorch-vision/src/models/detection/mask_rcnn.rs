@@ -28,6 +28,7 @@ use ferrotorch_nn::parameter::Parameter;
 use ferrotorch_nn::{Conv2d, ConvTranspose2d};
 
 use crate::models::detection::faster_rcnn::{FasterRcnn, fasterrcnn_resnet50_fpn};
+use crate::models::detection::roi_heads_postprocess::postprocess_masks;
 use crate::ops::roi_align;
 
 // ---------------------------------------------------------------------------
@@ -184,18 +185,21 @@ impl<T: Float> MaskPredictor<T> {
 
 /// Per-image detection output from Mask R-CNN.
 ///
-/// Extends [`Detections`] with per-detection, per-class binary mask logits.
+/// Extends [`crate::models::detection::Detections`] with a single pasted mask
+/// per detection. Matches `torchvision.models.detection.MaskRCNN`'s output
+/// dictionary after `paste_masks_in_image`.
 #[derive(Debug, Clone)]
 pub struct MaskDetections<T: Float> {
     /// Predicted boxes `[N_det, 4]` in xyxy pixel coords.
     pub boxes: Tensor<T>,
-    /// Class scores (softmax probabilities) `[N_det, num_classes]`.
+    /// Per-detection score `[N_det]` (softmax probability of the predicted class).
     pub scores: Tensor<T>,
-    /// Predicted class label (0-indexed, background = 0) `[N_det]`.
+    /// Predicted class label `[N_det]` (always `>= 1` — background is dropped).
     pub labels: Vec<usize>,
-    /// Mask logits `[N_det, num_classes, 28, 28]`.
-    ///
-    /// Apply sigmoid to obtain per-class binary mask probabilities.
+    /// Mask probabilities `[N_det, 1, H_img, W_img]` after sigmoid +
+    /// class-channel-selection + `paste_masks_in_image`. Matches
+    /// `torchvision.models.detection.MaskRCNN`'s `model(img)[0]["masks"]`
+    /// from the full forward (post-`GeneralizedRCNNTransform.postprocess`).
     pub masks: Tensor<T>,
 }
 
@@ -270,10 +274,13 @@ impl<T: Float> MaskRcnn<T> {
             });
         }
         let batch = images.shape()[0];
+        let img_h = images.shape()[2];
+        let img_w = images.shape()[3];
 
         // ---- Reuse FasterRcnn backbone + FPN internals ----
         // We call into the FasterRcnn's sub-modules via its forward to get
-        // detection results, then separately run the mask branch.
+        // detection results (already post-NMS, post-top-K), then separately
+        // run the mask branch.
         let detections = self.faster_rcnn.forward(images)?;
 
         // We also need the FPN features for the mask ROI align.
@@ -287,10 +294,13 @@ impl<T: Float> MaskRcnn<T> {
             let n_proposals = det.boxes.shape()[0];
 
             if n_proposals == 0 {
-                // No detections → empty masks.
+                // No detections → empty post-paste mask tensor with shape
+                // `[0, 1, H_img, W_img]` matching torchvision's
+                // `model(img)[0]["masks"]` (post-paste) when no detections
+                // survived NMS.
                 let empty_masks = Tensor::from_storage(
                     TensorStorage::cpu(vec![]),
-                    vec![0, self.num_classes, 28, 28],
+                    vec![0, 1, img_h, img_w],
                     false,
                 )?;
                 results.push(MaskDetections {
@@ -386,13 +396,27 @@ impl<T: Float> MaskRcnn<T> {
 
             // ---- Mask predictor ----
             let mask_logits = self.mask_predictor.forward(&mask_features)?;
-            // Shape: [N, num_classes, 28, 28].
+            // Shape: [N_det, num_classes, 28, 28].
+
+            // ---- Mask postprocess: sigmoid → class-select → paste-back ----
+            //
+            // Mirrors torchvision `maskrcnn_inference` followed by the
+            // `GeneralizedRCNNTransform.postprocess` `paste_masks_in_image`
+            // step, producing `[N_det, 1, H_img, W_img]` to match
+            // `model(img)[0]["masks"]` from torchvision's full forward.
+            let pasted_masks = postprocess_masks::<T>(
+                &mask_logits,
+                &det.labels,
+                &det.boxes,
+                [img_h, img_w],
+                /* paste = */ true,
+            )?;
 
             results.push(MaskDetections {
                 boxes: det.boxes,
                 scores: det.scores,
                 labels: det.labels,
-                masks: mask_logits,
+                masks: pasted_masks,
             });
         }
 
@@ -402,6 +426,11 @@ impl<T: Float> MaskRcnn<T> {
     /// Total trainable parameter count.
     pub fn num_parameters(&self) -> usize {
         self.parameters().iter().map(|p| p.numel()).sum()
+    }
+
+    /// Number of detection classes including background at index 0.
+    pub fn num_classes(&self) -> usize {
+        self.num_classes
     }
 }
 
@@ -413,11 +442,20 @@ impl<T: Float> Module<T> for MaskRcnn<T> {
     fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         // Module::forward is required for the registry; primary API is
         // `MaskRcnn::forward` which returns `Vec<MaskDetections<T>>`.
-        // Convenience: return the mask logits for the first image's first ROI.
+        //
+        // Convention (matches #1139 verification harness): expose the
+        // first-image POST-PASTE mask tensor `[N_det, 1, H_img, W_img]`
+        // (sigmoid + class-select + `paste_masks_in_image`). Matches
+        // `torchvision`'s `model(img)[0]["masks"]` from the full forward.
+        let img_h = input.shape()[2];
+        let img_w = input.shape()[3];
         let dets = MaskRcnn::forward(self, input)?;
         if dets.is_empty() || dets[0].masks.shape()[0] == 0 {
-            let nc = self.num_classes;
-            return Tensor::from_storage(TensorStorage::cpu(vec![]), vec![0, nc, 28, 28], false);
+            return Tensor::from_storage(
+                TensorStorage::cpu(vec![]),
+                vec![0, 1, img_h, img_w],
+                false,
+            );
         }
         Ok(dets[0].masks.clone())
     }
@@ -633,13 +671,34 @@ mod tests {
         let n = d.boxes.shape()[0];
         assert_eq!(d.boxes.shape().len(), 2);
         assert_eq!(d.boxes.shape()[1], 4);
-        assert_eq!(d.scores.shape()[1], 91);
+        // Post-NMS scores: 1-D [N_det].
+        assert_eq!(d.scores.shape().len(), 1);
+        assert_eq!(d.scores.shape()[0], n);
         assert_eq!(d.labels.len(), n);
-        // Mask shape: [N, num_classes, 28, 28].
+        // Background never appears post-postprocess.
+        assert!(d.labels.iter().all(|&l| l >= 1));
+        // Mask shape: [N_det, 1, H_img, W_img] (sigmoid + class-select +
+        // `paste_masks_in_image`). Matches torchvision's
+        // `model(img)[0]["masks"]` post-`GeneralizedRCNNTransform.postprocess`.
         assert_eq!(d.masks.shape()[0], n);
-        assert_eq!(d.masks.shape()[1], 91);
-        assert_eq!(d.masks.shape()[2], 28);
-        assert_eq!(d.masks.shape()[3], 28);
+        assert_eq!(d.masks.shape()[1], 1);
+        assert_eq!(d.masks.shape()[2], 64);
+        assert_eq!(d.masks.shape()[3], 64);
+    }
+
+    #[test]
+    fn test_mask_rcnn_module_forward_post_paste_shape() {
+        // Locks the contract that `Module::forward` returns the POST-PASTE
+        // mask tensor `[N_det, 1, H_img, W_img]` (matches torchvision
+        // `model(img)[0]["masks"]`). Regression guard for #1141.
+        let model = make_model();
+        let img = no_grad(|| ferrotorch_core::randn(&[1, 3, 96, 128]).unwrap());
+        let out = no_grad(|| <MaskRcnn<f32> as Module<f32>>::forward(&model, &img).unwrap());
+        let s = out.shape();
+        assert_eq!(s.len(), 4);
+        assert_eq!(s[1], 1, "single mask channel post class-select");
+        assert_eq!(s[2], 96, "mask height matches image height (post-paste)");
+        assert_eq!(s[3], 128, "mask width matches image width (post-paste)");
     }
 
     #[test]

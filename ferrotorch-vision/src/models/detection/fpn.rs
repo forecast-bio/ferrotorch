@@ -15,11 +15,16 @@
 //! C3 ( 512ch) → lateral_c3 (256ch) + P3 ──────────────────→ output["p3"]
 //!                                        ↓ upsample 2×
 //! C2 ( 256ch) → lateral_c2 (256ch) + P2 ──────────────────→ output["p2"]
-//! P5 → 3×3 maxpool, stride 2 ──────────────────────────────→ output["p6"]
+//! P5 → 1×1 maxpool, stride 2 ──────────────────────────────→ output["p6"]
 //! ```
 //!
 //! All lateral/output convolutions use `out_channels=256` and apply a
 //! 1×1 lateral conv followed by a 3×3 output conv — matching the reference.
+//! Both lateral and output convs include a bias (matching torchvision's
+//! `Conv2dNormActivation(..., norm_layer=None)` which leaves Conv2d at
+//! `bias=True`).  The P6 path is torchvision's `LastLevelMaxPool`, which
+//! is a *pure stride-2 sub-sample* (`kernel=1, stride=2, padding=0`),
+//! NOT a true 3×3 maxpool — see #1141 for the parity probe.
 
 use std::collections::HashMap;
 
@@ -70,18 +75,26 @@ impl<T: Float> FeaturePyramidNetwork<T> {
         let in_channels = [256, 512, 1024, 2048];
         let out_ch = FPN_OUT_CHANNELS;
 
-        let lateral2 = Conv2d::new(in_channels[0], out_ch, (1, 1), (1, 1), (0, 0), false)?;
-        let lateral3 = Conv2d::new(in_channels[1], out_ch, (1, 1), (1, 1), (0, 0), false)?;
-        let lateral4 = Conv2d::new(in_channels[2], out_ch, (1, 1), (1, 1), (0, 0), false)?;
-        let lateral5 = Conv2d::new(in_channels[3], out_ch, (1, 1), (1, 1), (0, 0), false)?;
+        // bias=true matches torchvision: `Conv2dNormActivation(in,out, kernel_size=K,
+        // padding=P, norm_layer=None, activation_layer=None)` produces a plain
+        // `nn.Conv2d` whose default `bias=True`. ferrotorch's previous bias=false
+        // here was the root cause of #1141 (lateral + output biases were dropped
+        // by `strict=false` `load_state_dict`, breaking FPN parity end-to-end).
+        let lateral2 = Conv2d::new(in_channels[0], out_ch, (1, 1), (1, 1), (0, 0), true)?;
+        let lateral3 = Conv2d::new(in_channels[1], out_ch, (1, 1), (1, 1), (0, 0), true)?;
+        let lateral4 = Conv2d::new(in_channels[2], out_ch, (1, 1), (1, 1), (0, 0), true)?;
+        let lateral5 = Conv2d::new(in_channels[3], out_ch, (1, 1), (1, 1), (0, 0), true)?;
 
-        let output2 = Conv2d::new(out_ch, out_ch, (3, 3), (1, 1), (1, 1), false)?;
-        let output3 = Conv2d::new(out_ch, out_ch, (3, 3), (1, 1), (1, 1), false)?;
-        let output4 = Conv2d::new(out_ch, out_ch, (3, 3), (1, 1), (1, 1), false)?;
-        let output5 = Conv2d::new(out_ch, out_ch, (3, 3), (1, 1), (1, 1), false)?;
+        let output2 = Conv2d::new(out_ch, out_ch, (3, 3), (1, 1), (1, 1), true)?;
+        let output3 = Conv2d::new(out_ch, out_ch, (3, 3), (1, 1), (1, 1), true)?;
+        let output4 = Conv2d::new(out_ch, out_ch, (3, 3), (1, 1), (1, 1), true)?;
+        let output5 = Conv2d::new(out_ch, out_ch, (3, 3), (1, 1), (1, 1), true)?;
 
-        // P6: 3×3 maxpool, stride 2.
-        let pool_p6 = MaxPool2d::new([3, 3], [2, 2], [1, 1]);
+        // P6: `LastLevelMaxPool` in torchvision uses `kernel=1, stride=2,
+        // padding=0` — pure stride-2 sub-sampling, NOT a 3×3 maxpool.
+        // The previous 3×3-pool config gave a noticeably larger p6 output
+        // magnitude (~3.4 max-abs-diff vs torchvision) — see #1141 probe.
+        let pool_p6 = MaxPool2d::new([1, 1], [2, 2], [0, 0]);
 
         Ok(Self {
             lateral2,
@@ -313,17 +326,100 @@ mod tests {
     }
 
     #[test]
+    fn test_fpn_named_params_include_biases() {
+        // #1141: lateral + output convs MUST have biases (matching
+        // torchvision's `Conv2dNormActivation(..., norm_layer=None)` which
+        // keeps `nn.Conv2d(..., bias=True)`). The bias-less variant was the
+        // root cause of #1141 (924/1000 post-NMS proposal mismatch on
+        // image 87038); this test prevents regression.
+        let fpn = FeaturePyramidNetwork::<f32>::new().unwrap();
+        let names: Vec<String> = fpn
+            .named_parameters()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        for k in [
+            "lateral2.bias",
+            "lateral3.bias",
+            "lateral4.bias",
+            "lateral5.bias",
+            "output2.bias",
+            "output3.bias",
+            "output4.bias",
+            "output5.bias",
+        ] {
+            assert!(
+                names.iter().any(|n| n == k),
+                "FPN missing bias param '{k}'; full list: {names:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_fpn_p6_uses_stride_2_subsample_not_3x3_pool() {
+        // #1141: torchvision's `LastLevelMaxPool` is a kernel=1,
+        // stride=2, padding=0 sub-sample, NOT a 3×3 maxpool. With
+        // `kernel=1`, P6 == P5 sub-sampled at strides (0, 2, 4...), so
+        // `out["p6"][:,:,i,j] == out["p5"][:,:,2i,2j]` exactly (no max).
+        // The previous 3×3-pool config gave a noticeably larger p6 output
+        // magnitude (~3.4 max-abs-diff vs torchvision on a real image).
+        let fpn = FeaturePyramidNetwork::<f32>::new().unwrap();
+        let mut features = HashMap::new();
+        features.insert("layer1".into(), randn(&[1, 256, 40, 40]).unwrap());
+        features.insert("layer2".into(), randn(&[1, 512, 20, 20]).unwrap());
+        features.insert("layer3".into(), randn(&[1, 1024, 10, 10]).unwrap());
+        features.insert("layer4".into(), randn(&[1, 2048, 5, 5]).unwrap());
+        let out = fpn.forward(&features).unwrap();
+        // P5: [5, 5]. kernel=1, stride=2, padding=0 → P6: [3, 3].
+        // (Numerically: floor((5 - 1) / 2) + 1 = 3.)
+        assert_eq!(
+            out["p6"].shape(),
+            &[1, 256, 3, 3],
+            "P6 must be P5 sub-sampled at stride 2 (kernel=1, padding=0)"
+        );
+        let p5 = out["p5"].data_vec().unwrap();
+        let p6 = out["p6"].data_vec().unwrap();
+        let p5_shape = out["p5"].shape().to_vec();
+        let p6_shape = out["p6"].shape().to_vec();
+        let c = p5_shape[1];
+        let p5_h = p5_shape[2];
+        let p5_w = p5_shape[3];
+        let p6_h = p6_shape[2];
+        let p6_w = p6_shape[3];
+        for ci in 0..c {
+            for ph in 0..p6_h {
+                for pw in 0..p6_w {
+                    let p6_idx = (ci * p6_h + ph) * p6_w + pw;
+                    let src_h = 2 * ph;
+                    let src_w = 2 * pw;
+                    let p5_idx = (ci * p5_h + src_h) * p5_w + src_w;
+                    let diff = (p6[p6_idx] - p5[p5_idx]).abs();
+                    assert!(
+                        diff < 1e-6,
+                        "P6 must equal P5 sub-sampled at stride 2 (kernel=1); \
+                         at (c={ci}, h={ph}, w={pw}) got p6={:.6} p5_at_src={:.6} diff={diff:.4e}",
+                        p6[p6_idx],
+                        p5[p5_idx],
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_fpn_parameter_count() {
         let fpn = FeaturePyramidNetwork::<f32>::new().unwrap();
         let np: usize = fpn.parameters().iter().map(|p| p.numel()).sum();
         // 4 lateral (1×1) + 4 output (3×3), all 256→256 except laterals which
-        // are in_ch → 256. Exact count:
-        // lateral2: 256*256 = 65536
-        // lateral3: 512*256 = 131072
-        // lateral4: 1024*256 = 262144
-        // lateral5: 2048*256 = 524288
-        // output2..5: 4 * 256*256*3*3 = 4 * 589824 = 2359296
-        // total = 65536+131072+262144+524288+2359296 = 3342336
+        // are in_ch → 256. Plus 8 biases of [256] (added per #1141 to match
+        // torchvision's `Conv2dNormActivation(..., norm_layer=None)` which
+        // keeps Conv2d's default `bias=True`).
+        // lateral2: 256*256       + 256 = 65792
+        // lateral3: 512*256       + 256 = 131328
+        // lateral4: 1024*256      + 256 = 262400
+        // lateral5: 2048*256      + 256 = 524544
+        // output2..5: 4*(256*256*3*3 + 256) = 4*(589824 + 256) = 4*590080 = 2360320
+        // total = 65792+131328+262400+524544+2360320 = 3344384
         assert!(np > 3_000_000, "FPN params too low: {np}");
         assert!(np < 4_000_000, "FPN params too high: {np}");
     }

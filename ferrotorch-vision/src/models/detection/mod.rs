@@ -13,6 +13,7 @@ pub mod anchor_utils;
 pub mod faster_rcnn;
 pub mod fpn;
 pub mod mask_rcnn;
+pub mod roi_heads_postprocess;
 pub mod rpn;
 pub mod ssd;
 
