@@ -1,0 +1,10 @@
+{
+  "uuid": "afa634b1-d403-450c-bbd9-3cab3edc1ffe",
+  "issue_uuid": "b4124c40-3fea-4a2f-a661-725fd417b78d",
+  "author": "y4rr",
+  "content": "Causal LM real-artifact harness landed. Chose SmolLM-135M (HuggingFaceTB/SmolLM-135M, Apache 2.0, Llama architecture, tied embeddings). Pinned to ferrotorch/smollm-135m (SHA c7a387d6). Harness verify_causal_lm_inference.py mirrors vision pattern. cargo test wrapper conformance_pretrained_causal_lm gated on --ignored. PASS first-try: top1_argmax=100% across full sequence, top5_overlap=5/5 at last token, max_abs=0.0001.",
+  "created_at": "2026-05-11T17:21:50.570085685Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAeyG83zvMP/sCFfbQmBOb83b1LfEe8EPD3J/EsENi6eTQN8FV2DoN6nmxzARh2hujaiPbvYH7oImdShCw61NABg=="
+}
