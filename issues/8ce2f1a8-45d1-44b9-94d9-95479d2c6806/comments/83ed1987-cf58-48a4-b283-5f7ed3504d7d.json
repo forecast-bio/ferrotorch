@@ -1,0 +1,10 @@
+{
+  "uuid": "83ed1987-cf58-48a4-b283-5f7ed3504d7d",
+  "issue_uuid": "8ce2f1a8-45d1-44b9-94d9-95479d2c6806",
+  "author": "y4rr",
+  "content": "Plan: Add a 25th workspace crate ferrotorch-diffusion implementing the SD-1.5 VAE decoder only (latent [B,4,64,64] -> image [B,3,512,512]). Architecture: conv_in(4->512) + UNetMidBlock2D(resnets + 1 attn @ 512ch) + 4 UpBlock2D (resnets + nearest-2x upsample, no upsample on last) + GroupNorm(32) + SiLU + conv_out(128->3). Reuse ferrotorch-nn primitives: Conv2d, GroupNorm, Linear, SiLU, Dropout, Upsample (nearest). Add ResnetBlock2D, AttnBlock2D, Upsample2D in blocks.rs. Pin script grabs vae/ subfolder of runwayml/stable-diffusion-v1-5, generates deterministic latent + reference image fixtures, uploads to HF ferrotorch/sd-v1-5-vae-decoder. TOL: cosine_sim>=0.999, max_abs<=0.5. No encoder, no UNet, no text encoder — out of scope.",
+  "created_at": "2026-05-11T18:16:46.401306551Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQJzQy5/rLsxkc/AYr/s1+caHsnJnOoJ26IZoFkwNE3+nkfLgTyftnda/qoHFkINxygmfAp/E4xZn9XDHPBz2Cg=="
+}
