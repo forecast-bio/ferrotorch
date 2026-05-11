@@ -1,0 +1,10 @@
+{
+  "uuid": "51bea58c-1e07-4588-9f62-28700644aaaa",
+  "issue_uuid": "8ce2f1a8-45d1-44b9-94d9-95479d2c6806",
+  "author": "y4rr",
+  "content": "Decision: Architecture covers post_quant_conv(4->4, k=1) + Decoder. Pre-divide by scaling_factor handled by caller (the spec dictates 'decoder pre-divides by 0.18215' so we'll match). Mid block has: resnets[0] (no temb=None used) -> attentions[0] (residual+groupnorm+to_q/k/v/to_out, heads=1, attention_head_dim=512) -> resnets[1]. Each UpDecoderBlock2D has 3 resnets (layers_per_block+1=3). 4 up_blocks total. Reversed channels [512,512,256,128]. Resnet temb_channels=None and temb=None — no time-embed projection. Param key layout: post_quant_conv.{weight,bias}, decoder.conv_in.{weight,bias}, decoder.mid_block.resnets.{0,1}.{norm1,conv1,norm2,conv2,...}.{weight,bias} decoder.mid_block.attentions.0.{group_norm,to_q,to_k,to_v,to_out.0}.{weight,bias}, decoder.up_blocks.{0..3}.resnets.{0,1,2}.{norm1,conv1,norm2,conv2}.{weight,bias} [+ conv_shortcut when in_ch != out_ch], decoder.up_blocks.{0..2}.upsamplers.0.conv.{weight,bias}, decoder.conv_norm_out.{weight,bias}, decoder.conv_out.{weight,bias}.",
+  "created_at": "2026-05-11T18:19:37.047490938Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABARb1QczvelIqU5e4R3RgCB/swJJUqJFu6olI4JQy3oKyWNNaDfDrV2tFGpDKbn5IGoPl5P4abta5fSRdni1hdDA=="
+}
