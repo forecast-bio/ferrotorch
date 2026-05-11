@@ -1,0 +1,11 @@
+{
+  "uuid": "a0803830-3a9a-4e56-bfd6-29cd78b2ce0a",
+  "display_id": 1143,
+  "title": "retinanet_resnet50_fpn end-to-end torchvision parity",
+  "description": "Phase A Item 1 of real-artifact-driven development. Add retinanet_resnet50_fpn (legacy COCO_V1) to ferrotorch and verify end-to-end against torchvision via verify_pretrained_inference.py harness. Pattern: same playbook as #1141 (FasterRCNN/MaskRCNN). Key arch differences vs FasterRCNN: P3-P7 FPN (not P2-P6) with LastLevelP6P7 (3x3 stride-2 convs, not LastLevelMaxPool); 9 anchors/loc (3 sizes x 3 ratios); shared 4-conv classification + regression heads (cls outputs A*num_classes=819, reg outputs A*4=36); per-class sigmoid scoring; box weights (1,1,1,1); single-stage (no RPN, no RoIHeads). Expected: 6/6 PASS on verify harness (abs_score_top5<=0.02, n_det_ratio>=0.80). No follow-ups.",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-11T12:51:39.863007189Z",
+  "updated_at": "2026-05-11T12:51:39.863007189Z"
+}
