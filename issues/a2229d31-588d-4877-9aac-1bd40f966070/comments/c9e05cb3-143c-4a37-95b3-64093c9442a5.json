@@ -1,0 +1,10 @@
+{
+  "uuid": "c9e05cb3-143c-4a37-95b3-64093c9442a5",
+  "issue_uuid": "a2229d31-588d-4877-9aac-1bd40f966070",
+  "author": "y4rr",
+  "content": "Decision: Option B (set-equality for shuffled, order-equality for sequential). Rust rand crate uses different PRNG than torch; this is documented in dataloader_shuffle_coverage already. The principled approach is 'same items, just permuted' for shuffled configs. Sample type: a simple { features: Vec<f32>(8), label: i32 } struct using VecDataset<Sample>. Multi-tensor binary format mirrors optimizer-trajectory-v1: [u32 num_tensors] + per-tensor [u32 ndim][u32*ndim shape][f32*prod]. Labels stored as a [N] f32 tensor for simplicity (round-trip via i32-as-f32).",
+  "created_at": "2026-05-11T23:04:23.665652549Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAnnWeW0MqRhbZM0ESaIlz8SbHj9cT+YZxA/9aC9TyL/MBTIpX9k3yT4VfImHVyji9OAABmAHfN7Y+tJoBKEnDAA=="
+}
