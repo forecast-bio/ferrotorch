@@ -377,6 +377,31 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::SafeTensors,
         num_parameters: 22_565_376,
     },
+    // #1149: whisper-tiny-encoder (openai/whisper-tiny) — first pinned
+    // Whisper-family audio encoder. 4-layer 6-head encoder, d_model=384,
+    // encoder_ffn_dim=1536, num_mel_bins=80, max_source_positions=1500,
+    // pre-norm residual, GELU FFN, sinusoidal positional embedding
+    // (shipped as a parameter in the state dict). MIT-licensed. The
+    // mirror carries ONLY the encoder slice of openai/whisper-tiny — the
+    // decoder + proj_out keys are dropped during the pin (see
+    // `scripts/pin_pretrained_whisper_weights.py`). Mirrored
+    // byte-for-byte from upstream for the encoder keys (HF layout
+    // matches `WhisperEncoder::named_parameters()` exactly; the pin
+    // script verifies every parameter key + shape and refuses to pin if
+    // any encoder key is unmapped). The mirror also ships
+    // `_value_parity_{audio,mel,encoder_output}.bin` so the
+    // `scripts/verify_audio_encoder_inference.py` harness (and the
+    // `conformance_pretrained_whisper_encoder` cargo test) can compare
+    // ferrotorch's encoder output against a frozen `transformers==4.50.3`
+    // reference forward pass without re-running it in CI.
+    ModelInfo {
+        name: "whisper-tiny-encoder",
+        description: "whisper-tiny encoder (openai/whisper-tiny): 8.2M-param Whisper-family audio encoder, MIT, real-artifact baseline for audio encoder parity vs transformers (#1149)",
+        weights_url: "https://huggingface.co/ferrotorch/whisper-tiny-encoder/resolve/main/model.safetensors",
+        weights_sha256: "4ce29194b87ef05385203f8b09914f5c3b060200c2b503d6d420459ffb80a294",
+        format: WeightsFormat::SafeTensors,
+        num_parameters: 8_208_384,
+    },
 ];
 
 /// List all available pretrained models.

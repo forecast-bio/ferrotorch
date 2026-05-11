@@ -1,0 +1,35 @@
+[package]
+name = "ferrotorch-whisper"
+description = "Whisper-family audio encoder model composition and log-mel preprocessing for ferrotorch"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[features]
+default = []
+
+[dependencies]
+ferrotorch-core = { workspace = true }
+ferrotorch-nn = { workspace = true }
+ferrotorch-serialize = { workspace = true }
+ferrotorch-hub = { workspace = true }
+num-traits = { workspace = true }
+safetensors = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[example]]
+name = "whisper_encoder_dump"
+path = "examples/whisper_encoder_dump.rs"
