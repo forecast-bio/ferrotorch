@@ -1,0 +1,10 @@
+{
+  "uuid": "73e48a55-203d-452c-b02d-ba96c5348159",
+  "issue_uuid": "dc353a60-be28-4483-bd5b-2d23bd1df7a1",
+  "author": "y4rr",
+  "content": "Probe plan: (a) compare per-stage tensors on image 4 between rust dump and a torchvision hook-extracted dump — RPN proposals, post-box-head boxes/scores, post-NMS scores, keypoint heatmaps, decoded keypoints. (b) Known suspect: keypoint_roi_pool uses featmap_names=['0','1','2','3'] (p2..p5) — 4 levels — but rust assign_fpn_levels_keypoint clamps to [2,6] and iterates over 5 levels (p2..p6). Any ROI assigned level=6 in rust would diverge from torchvision (which clamps to level=5).",
+  "created_at": "2026-05-11T14:57:08.982873377Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA/SH1DfetScAKwpqEjk79XuKpDcsexfLxpiNyKibk2QsGNX9A/Q3BvmOtX2MsIuv/BteE0T8Evzzfj86COrHeCw=="
+}
