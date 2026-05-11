@@ -2,11 +2,12 @@
   "uuid": "2357e2ad-dd02-40ba-af00-bf4948766142",
   "display_id": 1146,
   "title": "lraspp_mobilenet_v3_large end-to-end torchvision parity",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-11T16:28:06.167696639Z",
-  "updated_at": "2026-05-11T16:28:07.705613635Z",
+  "updated_at": "2026-05-11T16:57:17.483263070Z",
+  "closed_at": "2026-05-11T16:57:17.483263070Z",
   "labels": [
     "real-artifact"
   ]
