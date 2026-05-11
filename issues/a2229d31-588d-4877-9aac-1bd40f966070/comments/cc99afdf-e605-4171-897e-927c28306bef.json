@@ -1,0 +1,10 @@
+{
+  "uuid": "cc99afdf-e605-4171-897e-927c28306bef",
+  "issue_uuid": "a2229d31-588d-4877-9aac-1bd40f966070",
+  "author": "y4rr",
+  "content": "Resolution: for shuffled+drop_last configs, the comparison cannot be SET-equality against torch's kept-items (different PRNGs drop different items). Instead, verify the semantic invariant: rust's output items form a valid subset of the original 10-item dataset, all unique, of expected length. The pin script's meta.json carries the FULL 10-item ground truth so the verifier can check (a) each rust item exists in the reference dataset (b) no duplicates (c) count == expected (B*num_batches for drop_last=True). This validates 'rust DataLoader respects drop_last semantics + shuffles a permutation' without requiring PRNG match.",
+  "created_at": "2026-05-11T23:09:27.270222939Z",
+  "kind": "resolution",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAo3v5XxXjAnCdupK7KhIYZ5U0ZGOsVBkrM4jRbfDw+mbxW4d502PcaXoGxAkNmjauOiY+TZg3Apc6EPBAc5SzCQ=="
+}
