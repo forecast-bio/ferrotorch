@@ -224,6 +224,28 @@ impl LlamaGpuInferencer {
     ) -> FerrotorchResult<Self> {
         config.validate()?;
 
+        // Tied-embeddings handling. When `config.tie_word_embeddings`
+        // is set and the checkpoint exports only `embed_tokens.weight`
+        // (HF's transformers serialises the tied case this way —
+        // `lm_head.weight` is simply not in the safetensors), copy
+        // `embed_tokens.weight` into `lm_head.weight` BEFORE the
+        // per-tensor uploads consume it. Without this branch, models
+        // like SmolLM-135M (tie=true) fail at the `lm_head.weight`
+        // upload with "missing tensor in StateDict" — surfaced by the
+        // crosslink #1154 GPU parity harness against the CPU f32
+        // reference. The CPU path
+        // ([`LlamaForCausalLM::load_hf_state_dict`]) already does this
+        // remap; the GPU path now matches.
+        if config.tie_word_embeddings && !state.contains_key("lm_head.weight") {
+            let embed = state
+                .get("model.embed_tokens.weight")
+                .ok_or_else(|| FerrotorchError::InvalidArgument {
+                    message: "tied embeddings but model.embed_tokens.weight missing".into(),
+                })?
+                .clone();
+            state.insert("lm_head.weight".to_string(), embed);
+        }
+
         let embed_tokens = upload_bf16_tensor(
             &mut state,
             "model.embed_tokens.weight",
@@ -292,6 +314,45 @@ impl LlamaGpuInferencer {
         let last_offset = (seq - 1) * vocab;
         let last_row = &logits_host[last_offset..last_offset + vocab];
         Ok(last_row
+            .iter()
+            .map(|&b| bf16::from_bits(b).to_f32())
+            .collect())
+    }
+
+    /// Forward `ids` through the network and return logits for **every**
+    /// position as `Vec<f32>` of length `seq_len * vocab_size`, laid out
+    /// row-major as `[seq, vocab]`.
+    ///
+    /// This is the harness-oriented sibling of [`Self::forward_from_ids`]:
+    /// generation only needs the last-token row, but a numerical-parity
+    /// harness (e.g. `scripts/verify_causal_lm_gpu_inference.py`) needs
+    /// every position's logits to compute top-1 argmax-agreement across
+    /// the prefill. The forward pass itself is identical — only the host
+    /// download window differs (full tensor vs. last row).
+    ///
+    /// # Errors
+    ///
+    /// Same error surface as [`Self::forward_from_ids`].
+    pub fn forward_logits_from_ids_all(&self, ids: &[u32]) -> FerrotorchResult<Vec<f32>> {
+        let seq = ids.len();
+        let cfg = &self.config;
+        let dev = &self.device;
+        let hidden = cfg.hidden_size;
+        let vocab = cfg.vocab_size;
+
+        let final_norm = self.forward_core(ids, None)?;
+
+        let logits = gpu_matmul_bf16_bf16_nt(&final_norm, &self.lm_head, seq, hidden, vocab, dev)
+            .map_err(map_gpu_err)?;
+
+        // Download the full `[seq, vocab]` logits tensor and convert
+        // bf16 bit-pattern back to f32 element by element. The bf16
+        // bandwidth here is `seq_len * vocab_size * 2` bytes — for
+        // smollm-135m's vocab=49152 and a 9-token prompt that's
+        // ~880 kiB, negligible relative to the forward pass.
+        let logits_host: Vec<u16> = dev.stream().clone_dtoh(&logits).map_err(map_driver_err)?;
+        debug_assert_eq!(logits_host.len(), seq * vocab);
+        Ok(logits_host
             .iter()
             .map(|&b| bf16::from_bits(b).to_f32())
             .collect())
