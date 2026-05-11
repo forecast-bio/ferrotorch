@@ -2,11 +2,12 @@
   "uuid": "8ce2f1a8-45d1-44b9-94d9-95479d2c6806",
   "display_id": 1150,
   "title": "SD-1.5 VAE decoder real-artifact harness vs diffusers",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-11T18:16:28.460320165Z",
-  "updated_at": "2026-05-11T18:16:30.215198956Z",
+  "updated_at": "2026-05-11T18:54:20.585017096Z",
+  "closed_at": "2026-05-11T18:54:20.585017096Z",
   "labels": [
     "real-artifact"
   ]
