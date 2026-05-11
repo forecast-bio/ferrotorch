@@ -1,0 +1,10 @@
+{
+  "uuid": "d8314ae6-f58a-4d43-99c4-3dfc09007f42",
+  "issue_uuid": "3d1b02e8-f70c-4e6e-8874-b320c8667e5b",
+  "author": "y4rr",
+  "content": "ferrotorch-graph crate added (26th workspace member). scatter_add primitive added to ferrotorch-core. GcnConv with degree-normalized aggregation (D^-1/2 A D^-1/2), self-loop adding, scatter-based message passing. 2-layer GCN matches PyG examples/gcn.py. PASS bit-level: cosine_sim=1.0, max_abs=2e-6, argmax_agree=100%, test_acc=0.8040 identical to PyG. Pinned to ferrotorch/gcn-cora (SHA c535acff353f). 10 lib tests.",
+  "created_at": "2026-05-11T23:52:21.194398979Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABALNMRln3Jf3vXIGzs4Ax9YtGDnjQy5d9modHR0zsiRXQZ7bfjOYvOI2+BtUlh3/ShUONMGJULMMDoIKrdKUF5Bw=="
+}
