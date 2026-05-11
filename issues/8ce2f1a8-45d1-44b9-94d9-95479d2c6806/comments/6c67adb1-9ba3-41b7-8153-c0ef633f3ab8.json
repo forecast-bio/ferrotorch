@@ -1,0 +1,10 @@
+{
+  "uuid": "6c67adb1-9ba3-41b7-8153-c0ef633f3ab8",
+  "issue_uuid": "8ce2f1a8-45d1-44b9-94d9-95479d2c6806",
+  "author": "y4rr",
+  "content": "ferrotorch-diffusion crate added (25th workspace member). Scope: VAE decoder only. ResnetBlock2D + AttnBlock2D + Upsample2D + 4-block decoder. GroupNorm(32) + SiLU + Conv2d throughout. PASS first-try: cosine_sim=1.0, max_abs=0.001 on deterministic latent (seed=42). Pinned to ferrotorch/sd-v1-5-vae-decoder (SHA 66b1c06d47c1). 22 lib tests. Next sub-dispatches: B.3b UNet, B.3c CLIP text encoder.",
+  "created_at": "2026-05-11T18:54:08.854254226Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAHDZOyaLBOmceIlqMgd6tiuX1ociui2Hcyr/xyePU1oroEFRehspq1118JfWxcvilayq/dOzG/Z9uj87DlfBFBA=="
+}
