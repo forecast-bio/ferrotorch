@@ -1,0 +1,10 @@
+{
+  "uuid": "e36500e1-f3a9-4852-9c93-09cdb3a7cd11",
+  "issue_uuid": "a2229d31-588d-4877-9aac-1bd40f966070",
+  "author": "y4rr",
+  "content": "Result: Phase C.3 DataLoader iteration parity vs torch.utils.data delivered. 5/5 configs PASS. Pinned ferrotorch/dataloader-batches-v1 (bundle SHA c6a9f938f27f174b3fc74bd26f6083464c6bf37e3d4ab7ddaa0109c62bd15ce7, repo SHA 170d0412ab3e). Equality modes: ORDER for sequential/sequential_droplast/batch_size_3, SET for shuffled_seeded, SUBSET for shuffled_droplast (drop_last+shuffle drops different items per PRNG, so SUBSET-validity against full 10-item ground truth replaces SET-equality). Files: scripts/pin_pretrained_dataloader_batches.py, scripts/verify_dataloader_inference.py, ferrotorch-data/examples/dataloader_iterate_dump.rs, ferrotorch-data/tests/conformance_dataloader_iteration.rs, registry pin in ferrotorch-hub/src/registry.rs. Cargo test wrapper PASS. ferrotorch-data --lib 162 tests PASS (unchanged). ferrotorch-vision --lib 452 PASS (unchanged). workspace build clean. clippy clean.",
+  "created_at": "2026-05-11T23:12:45.953092598Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAqKidMFj8Hd0sZ/OuUicBhXiD2HqH8T0Pqx8THVJmlMu1aXEJPr8R2m2hQF/F577nR71uUwIx3Ds7JvGHcBPoCQ=="
+}
