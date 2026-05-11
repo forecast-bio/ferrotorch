@@ -3,12 +3,13 @@
   "display_id": 1142,
   "title": "DeepLabV3 + FCN: bisect logit-magnitude divergence (root cause investigation)",
   "description": "Surfaced by #1139. DeepLabV3 and FCN have correct output SHAPES vs torchvision but logits are ~half-magnitude with sign flips on multiple classes. argmax agreement 67-96% across 5 test images (consistent signal, root cause unclear).\n\nDeepLabV3 mean per class (image 397133):\n- ferrotorch: [4.99, -0.69, -0.54, ..., -0.17]\n- torchvision: [10.65, -1.67, -2.15, ..., 0.030]\nRoughly 2x magnitude shift, sign flips on classes 5/9/11/16/19/20.\n\nLikely candidates (per #1130 documented structural mismatches):\n1. ResNet-50 backbone fc-head random fill (seed=0 used in conversion).\n2. aux_classifier drop (should be inference-irrelevant; verify).\n3. ASPP branch ordering / dilation mismatch.\n4. Some other layer-level divergence.\n\nAcceptance:\n- Extend ferrotorch-vision/examples/inference_dump.rs with --dump-after <layer> flag to dump intermediate activations.\n- Per-layer activation diff vs torchvision: identify the first divergence point.\n- Fix the root cause.\n- Re-run #1139 harness; both DeepLabV3 and FCN must PASS argmax-agreement ≥ 99% AND logit max-abs-diff < 1e-3.\n\nConfidence: MED — clear signal, root cause needs bisecting.",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
   "created_by": "y4rr",
   "created_at": "2026-05-11T07:39:20.832004479Z",
-  "updated_at": "2026-05-11T07:39:22.133447399Z",
+  "updated_at": "2026-05-11T12:39:50.555465665Z",
+  "closed_at": "2026-05-11T12:39:50.555465665Z",
   "labels": [
     "audit,vision,segmentation,inference-quality,investigation"
   ]
