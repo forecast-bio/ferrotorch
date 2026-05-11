@@ -1,0 +1,10 @@
+{
+  "uuid": "8b56c6ab-9de2-46e5-b588-586f9a62da4b",
+  "display_id": 1144,
+  "title": "fcos_resnet50_fpn end-to-end torchvision parity",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-11T13:16:09.211492345Z",
+  "updated_at": "2026-05-11T13:16:09.211492345Z"
+}
