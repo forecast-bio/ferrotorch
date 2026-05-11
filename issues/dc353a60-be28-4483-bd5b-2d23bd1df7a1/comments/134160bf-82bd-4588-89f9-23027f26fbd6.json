@@ -1,0 +1,10 @@
+{
+  "uuid": "134160bf-82bd-4588-89f9-23027f26fbd6",
+  "issue_uuid": "dc353a60-be28-4483-bd5b-2d23bd1df7a1",
+  "author": "y4rr",
+  "content": "Observed effect: image 1 OK (was: 0/1 dets); image 3 OK n_det_ratio=0.889 (was 0.5); image 4 OK kp_diff=0.154 px (was 9.6 px); image 5 score_max_abs=0.0245 still over 0.02 threshold. Cause is rank-4 score f32 drift on a borderline person detection (rust 0.061 vs tv 0.096 for the same physical small box at [877,172,948,258]); same f32-accumulation noise n_det_ratio handles in fcos/retinanet. Top-3 scores now match to <0.014 abs vs <0.06 pre-fix; all matched keypoint pairs <2 px mean diff vs <12 px pre-fix.",
+  "created_at": "2026-05-11T15:26:47.741618582Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAUp6uI23CiLsbeVibMy8Mm3wknbi6/4Uvu0vbNXm/g0OhRTc36/IMpLFTot/4A9CVMyIwMDfM1l2ddJUaL6dDDw=="
+}
