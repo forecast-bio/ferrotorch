@@ -1,0 +1,10 @@
+{
+  "uuid": "01f860b2-6cdb-479d-98d3-47f10875886f",
+  "issue_uuid": "202535d8-29ae-4b4b-9abf-8f84d38a50cc",
+  "author": "y4rr",
+  "content": "Decision: Build CLIP self-attention as a dedicated struct (CLIPSelfAttention) using ferrotorch_nn::standard_attention with causal=true. The diffusion crate's existing Attention struct uses unmasked softmax — cannot reuse. Will mirror BertSelfAttention's structure but: (a) pass causal=true, (b) all four projections have bias, (c) include the to_out projection inside the attention layer (since HF CLIP groups them as self_attn.{q_proj,k_proj,v_proj,out_proj}). QuickGELU: use GELU::with_approximate(GeluApproximate::Sigmoid), which is the documented x*sigmoid(1.702*x). State-dict prefix per HF: text_model.{embeddings.token_embedding.weight, embeddings.position_embedding.weight, encoder.layers.{i}.{layer_norm1, self_attn.{q_proj,k_proj,v_proj,out_proj}, layer_norm2, mlp.{fc1,fc2}}, final_layer_norm.{weight,bias}}.",
+  "created_at": "2026-05-11T21:40:14.728674108Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABALiJ1UPjbGWVehdRc1t7vtAks4OBcVYfbpMvMrkIRMKcMKPTX15vQvMq27B+Qxis1mMuMFsVcBvzbuIMeZ0WmBQ=="
+}
