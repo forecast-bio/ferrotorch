@@ -566,12 +566,24 @@ pub fn hf_download_model(
     }
 
     // 3. Best-effort tokenizer files (some repos ship them; ignore 404).
+    // Previously this loop discarded `fetch_optional`'s body (`let _ = ...`)
+    // so the bytes never reached the cache — every downstream consumer that
+    // expected `tokenizer.json` next to the safetensors saw `NotFound`.
+    // #1147 surfaced the regression when `ferrotorch-llama`'s causal-LM
+    // example tried to load the tokenizer from the cached repo dir.
     for opt in &[
         "tokenizer.json",
         "tokenizer_config.json",
         "special_tokens_map.json",
     ] {
-        let _ = fetch_optional(repo, revision, opt)?;
+        if let Some(body) = fetch_optional(repo, revision, opt)? {
+            let cache_name = format!("{repo}/{opt}");
+            // Defense-in-depth: confirm the resolved path is still inside
+            // `cache_dir` before writing (same guard `fetch_one` applies).
+            let final_path = cache.path(&cache_name);
+            assert_within_cache(cache.cache_dir(), &final_path)?;
+            cache.store(&cache_name, &body)?;
+        }
     }
 
     Ok(cache.path(repo))

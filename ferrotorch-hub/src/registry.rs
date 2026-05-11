@@ -329,6 +329,27 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::SafeTensors,
         num_parameters: 59_137_258,
     },
+    // #1147: SmolLM-135M (HuggingFaceTB/SmolLM-135M) — first pinned
+    // causal LM (Llama architecture, 135M params, tie_word_embeddings).
+    // Apache-2.0 license. Mirrored byte-for-byte from upstream by
+    // `scripts/pin_pretrained_llm_weights.py` (no key remapping required:
+    // upstream uses the HF Llama naming convention that
+    // `LlamaForCausalLM::load_hf_state_dict` already consumes; the pin
+    // script verifies every key + shape against the ferrotorch-llama
+    // expected set before upload). The mirror also ships
+    // `_value_parity_{input,output,token_ids}.{txt,bin,json}` so the
+    // `scripts/verify_causal_lm_inference.py` harness (and the
+    // `conformance_pretrained_causal_lm` cargo test) can compare
+    // ferrotorch's prefill logits against a frozen `transformers==4.50.3`
+    // reference forward pass without re-running it in CI.
+    ModelInfo {
+        name: "smollm-135m",
+        description: "SmolLM-135M (HuggingFaceTB/SmolLM-135M): 135M-param Llama-architecture causal LM, Apache 2.0, real-artifact baseline for causal LM parity vs transformers (#1147)",
+        weights_url: "https://huggingface.co/ferrotorch/smollm-135m/resolve/main/model.safetensors",
+        weights_sha256: "c7a387d6fe81ca6dd304aeb809bda3932ff1bbef3ca41c9484502f2f448dc093",
+        format: WeightsFormat::SafeTensors,
+        num_parameters: 134_515_008,
+    },
 ];
 
 /// List all available pretrained models.

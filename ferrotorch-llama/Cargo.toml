@@ -54,6 +54,10 @@ name = "llama3_8b"
 path = "examples/llama3_8b.rs"
 
 [[example]]
+name = "llm_inference_dump"
+path = "examples/llm_inference_dump.rs"
+
+[[example]]
 name = "llama3_8b_gpu"
 path = "examples/llama3_8b_gpu.rs"
 required-features = ["cuda"]
