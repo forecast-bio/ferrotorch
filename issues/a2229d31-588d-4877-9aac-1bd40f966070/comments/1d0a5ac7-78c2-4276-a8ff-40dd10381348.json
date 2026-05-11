@@ -1,0 +1,10 @@
+{
+  "uuid": "1d0a5ac7-78c2-4276-a8ff-40dd10381348",
+  "issue_uuid": "a2229d31-588d-4877-9aac-1bd40f966070",
+  "author": "y4rr",
+  "content": "Plan: Phase C.3 of real-artifact-driven development. Pin DataLoader batches from torch.utils.data for 5 configs (sequential, sequential_droplast, shuffled_seeded, shuffled_droplast, batch_size_3) using a 10-item fixed dict dataset. Build rust example (dataloader_iterate_dump.rs) that loads the same data + replicates config. Use Option B: SET-equality for shuffled configs (rust PRNG != torch PRNG), ORDER-equality for sequential. Comparison harness scripts/verify_dataloader_inference.py runs cargo build + cargo run per config, compares batches. Cargo test wrapper conformance_dataloader_iteration.rs (#[ignore]-gated). Upload to ferrotorch/dataloader-batches-v1.",
+  "created_at": "2026-05-11T23:02:47.585974363Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAug/j1ijJcuwMCripB8mlWDzD/b/Fg3HsJQBzp00ndqyx+UrJFpCBanWyZQZVICUEXpTI1tjAxGwV0gOB/eTGCA=="
+}
