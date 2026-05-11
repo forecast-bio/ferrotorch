@@ -1,0 +1,10 @@
+{
+  "uuid": "58ff05c5-7776-4bfc-b49f-707979f885f0",
+  "issue_uuid": "cd191b6a-0e29-488d-8467-1bc49f9cf3ec",
+  "author": "y4rr",
+  "content": "Commit wrapper for #1152 SD-1.5 CLIP text encoder closure. Conformance tests all 3 pass (VAE + UNet + CLIP), 1255s total. Bit-level parity confirmed.",
+  "created_at": "2026-05-11T22:15:15.968207549Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAgAEV+9adcXZRVt4mx62r23R9e23cST7r9ae8pJMrlNr+xHv53ogqWGCkBZtXoPMIYgoTYJKIegRy/mzos6YKBA=="
+}
