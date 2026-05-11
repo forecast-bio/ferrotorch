@@ -1,0 +1,10 @@
+{
+  "uuid": "4178eebd-06f0-4bb6-a5f2-7695a0801910",
+  "issue_uuid": "dc353a60-be28-4483-bd5b-2d23bd1df7a1",
+  "author": "y4rr",
+  "content": "Probe finding (image 4 + 5): box coords from rust FasterRCNN body are systematically shifted right+down by 5-10 px vs torchvision; keypoint pixel diff = box drift + heatmap-decode drift. Root cause: ferrotorch_vision::ops::roi_align hardcodes aligned=true (offset=0.5), but torchvision detection models use roi_align(aligned=False, legacy mode: offset=0.0, roi_width.clamp(min=1)). All ROI align call sites (box head, mask head, keypoint head) need aligned=False to match pretrained weights.",
+  "created_at": "2026-05-11T15:04:10.971307963Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAeHBy4/zT5MjKlvGXfqe7JFL83GysF5f7E+4BTppwS/KhWg4sgaaIf9L4870EcEYPclHtcM9Nc/0GzXoJZ8FJBg=="
+}
