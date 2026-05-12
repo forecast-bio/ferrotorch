@@ -3,12 +3,13 @@
   "display_id": 1135,
   "title": "Pass 5.A.4 follow-up: wire gpu_collective NCCL fast path (GpuTensor → raw pointer → NcclBackend)",
   "description": "Replaces closed #668 (Fix 11 silent GPU->CPU fallbacks gated on PtxCompileFailed + rewrite REDUCE_SUM_PTX/REDUCE_PROD_PTX shared-memory addressing).\n\nCurrent state: `gpu_allreduce` and `gpu_broadcast` in `ferrotorch-distributed/src/gpu_collective.rs` have `#[cfg(feature = \"nccl\")]` placeholder arms that compile to no-ops. Without the `nccl` feature and without `FERROTORCH_ENABLE_GPU_FALLBACK=1`, the functions return `Err(DistributedError::UnsupportedOp)` (PyTorch parity).\n\nReal implementation requires cross-crate glue to:\n1. Extract the raw device pointer from `GpuTensor<T>` (lives in `ferrotorch-gpu`)\n2. Dispatch through `NcclBackend::allreduce_raw` / `broadcast_raw` (lives in `ferrotorch-distributed::nccl_backend`)\n\nThe 6 tests at gpu_collective.rs:243/293/336/379/392/403 are currently `#[ignore]` because they relied on the silent fallback that ADR #663 item 7 made opt-in. They become runnable once either (a) the NCCL wiring lands here, OR (b) a test harness sets `FERROTORCH_ENABLE_GPU_FALLBACK` for the affected tests.",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
   "created_by": "y4rr",
   "created_at": "2026-05-10T16:28:26.061535288Z",
-  "updated_at": "2026-05-10T16:28:27.496636492Z",
+  "updated_at": "2026-05-12T21:30:22.471375610Z",
+  "closed_at": "2026-05-12T21:30:22.471375610Z",
   "labels": [
     "audit,distributed,gpu"
   ]
