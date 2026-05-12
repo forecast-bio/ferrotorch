@@ -1,0 +1,10 @@
+{
+  "uuid": "a76a700a-2848-454b-8fc7-65d7f0a253f2",
+  "issue_uuid": "53d8bacb-a602-4349-81d3-6058fd6c7048",
+  "author": "y4rr",
+  "content": "Result: Delivered. Pin script + verify harness + rust dump example + cargo test wrapper. Pinned to ferrotorch/tokenizer-parity-v1 (bundle.tar SHA-256 8d949235bb5cfaaea8916dcce001d17fd4b4383c2d5e033272397cf9545d1ef6); registry entry added. 5/5 families PASS via both the python verifier (real HF download round-trip) and the cargo --ignored test. Evidence: cargo test -p ferrotorch-tokenize --lib = 15 passed; cargo build --workspace = clean; cargo clippy --all-targets -- -D warnings = clean; cargo fmt --check = clean. No tolerance loosening (exact integer/string match throughout). Real bug surfaced and architected through: initial naive use of transformers.AutoTokenizer as the python reference produced FAILs on llama3 (clean_up_tokenization_spaces) and clip (slow-tokenizer </w> stripping); the architecturally correct reference is tokenizers.Tokenizer (the exact library rust wraps) — fixed and documented in registry.rs + script docstrings.",
+  "created_at": "2026-05-12T15:45:54.484687662Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAkG1CGZASd8qYYP7KPxiRsyL7XHXbtsi1kumivV/OoywxFTH8CW9aYRxDtuGlGGleBfmDQJ/L/+sRjqJ7AoJbBA=="
+}
