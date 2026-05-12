@@ -888,6 +888,119 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::FerrotorchStateDict,
         num_parameters: 0,
     },
+    // #1169: serialize-parity-v1 — Phase G.3 ferrotorch-serialize
+    // format-parity fixtures. The mirror is a fixture *bundle*
+    // (`bundle.tar`) plus four per-target subfolders:
+    //
+    //   * resnet18-pth/
+    //       resnet18-f37072fd.pth     — official torchvision ZIP-pickle
+    //                                    checkpoint (modern format —
+    //                                    NOT the legacy `5c106cde.pth`
+    //                                    tar-pickle, which neither
+    //                                    `torch.load(..., weights_only=True)`
+    //                                    nor ferrotorch's
+    //                                    `zip::ZipArchive` reader can
+    //                                    parse).
+    //       reference_state_dict/
+    //         <key>.bin               — per-tensor f32 binaries
+    //                                    `[u32 ndim][u32 shape...][f32]`
+    //                                    produced by `torch.load`.
+    //       keys.json                 — ordered tensor name list.
+    //   * safetensors-rt/
+    //       resnet18.safetensors      — same state_dict re-saved via
+    //                                    `safetensors.torch.save_file`.
+    //       reference_state_dict/<key>.bin  — same per-tensor f32 bins.
+    //       keys.json
+    //   * gguf/
+    //       SmolLM2-135M-Instruct-Q8_0.gguf — upstream
+    //                                    `unsloth/SmolLM2-135M-Instruct-GGUF`
+    //                                    Q8_0 + F32 mix (the K-quant
+    //                                    Q4_K_M variant uses GGML type
+    //                                    14 which ferrotorch-serialize
+    //                                    does not parse today).
+    //       reference_dequant/<name>.bin    — `gguf.quants.dequantize`
+    //                                          outputs for a stride-
+    //                                          sampled subset of 12
+    //                                          tensors covering Q8_0
+    //                                          + F32.
+    //       sampled_tensor_names.json
+    //       meta.json
+    //   * onnx-mlp/
+    //       mlp_weights.bin           — fixed-seed
+    //                                    (`torch.manual_seed(42)`)
+    //                                    weights for a
+    //                                    `Linear(4->8) + ReLU + Linear(8->2)`
+    //                                    MLP. Layout (in order):
+    //                                    fc1.weight [8,4], fc1.bias [8],
+    //                                    fc2.weight [2,8], fc2.bias [2],
+    //                                    each preceded by
+    //                                    `[u32 ndim][u32 shape...]`.
+    //       input_{zeros,ones,random}.bin
+    //       torch_forward_{zeros,ones,random}.bin
+    //       meta.json
+    //
+    // The rust harness
+    // (`ferrotorch-serialize/examples/serialize_parity_dump.rs`) runs
+    // one target per invocation and dumps either per-tensor f32
+    // binaries (pth / safetensors / gguf) or the rust-emitted
+    // `mlp.onnx` plus three rust-side ferrotorch forward outputs
+    // (onnx). The python verifier
+    // (`scripts/verify_serialize_inference.py`) compares per the
+    // hard per-target tolerance:
+    //
+    //   * pth_load               : max_abs == 0       (byte-exact)
+    //   * safetensors_round_trip : max_abs == 0       (byte-exact)
+    //   * gguf_load              : max_abs <= 1e-4    (Q8_0 dequant
+    //                                                  noise floor)
+    //   * onnx_export            : max_abs <= 1e-5 AND
+    //                              cosine_sim >= 0.9999 between
+    //                              (rust-emitted ONNX run via
+    //                               onnxruntime) and (ferrotorch's
+    //                               own forward).
+    //
+    // The cargo-side gate
+    // (`ferrotorch-serialize/tests/conformance_format_parity.rs`)
+    // shells out to the python verifier so a `cargo test --workspace`
+    // run cannot accidentally skip parity. All four wrappers are
+    // `#[ignore]`-gated because the verifier downloads from HF and
+    // invokes `onnxruntime`.
+    //
+    // Real bugs surfaced during #1169 implementation (all fixed
+    // before this entry landed):
+    //   * pytorch_import: `BINUNICODE` (4-byte length) opcode constant
+    //     was `0x8d` instead of `0x58`, breaking every modern ZIP-pickle
+    //     `.pth` immediately at the first `BINUNICODE` string.
+    //   * pytorch_import: `BINBYTES` / `SHORT_BINBYTES` constants were
+    //     mutually swapped (0x42/0x44 instead of 0x42/0x43).
+    //   * pytorch_import: `REDUCE` on `collections.OrderedDict()` /
+    //     `builtins.dict()` produced a `Reduce` value, which the
+    //     subsequent `SETITEMS` couldn't fill — now collapsed to an
+    //     empty `Dict([])`.
+    //   * pytorch_import: `try_extract_tensor_info` only recognized
+    //     `_rebuild_tensor_v2`, silently dropping every `nn.Parameter`
+    //     (wrapped in `_rebuild_parameter(tensor, requires_grad, ...)`).
+    //     Recursion through `args[0]` now picks them up; resnet18
+    //     went from 40 -> 102 tensors loaded.
+    //   * onnx_export: `TENSOR_RAW_DATA` field number was `13` (which
+    //     is `external_data`, a `repeated message`, NOT raw bytes) —
+    //     every initializer was malformed and ONNX Runtime rejected
+    //     the whole file with "Error parsing message with type
+    //     'onnx.TensorProto'". Corrected to `9`.
+    //
+    // `weights_url`/`weights_sha256` point at the tar bundle so this
+    // registry entry has the same shape as the rest of the parity
+    // bundles; the verify harness itself pulls per-target files via
+    // `hf_hub_download`. The `FerrotorchStateDict` format tag
+    // indicates "not a HF safetensors checkpoint" — the bundle is a
+    // single-file convenience archive.
+    ModelInfo {
+        name: "serialize-parity-v1",
+        description: "Phase G.3 ferrotorch-serialize format-parity fixtures: real torchvision resnet18 ZIP-pickle .pth (resnet18-f37072fd) + the same state_dict re-saved as SafeTensors + real unsloth SmolLM2-135M-Instruct Q8_0 GGUF + a fixed-seed Linear(4->8) + ReLU + Linear(8->2) MLP for ONNX export. Tolerances are byte-exact for pth + safetensors, max_abs<=1e-4 for GGUF Q8_0 dequant, max_abs<=1e-5 + cosine_sim>=0.9999 for the ONNX round-trip (rust-emitted ONNX run through onnxruntime vs ferrotorch's own forward). Mixed upstream licenses (BSD-3 for resnet18, Apache-2.0 for SmolLM2); real-artifact baseline for ferrotorch-serialize parity vs torch / safetensors / gguf / onnxruntime (#1169).",
+        weights_url: "https://huggingface.co/ferrotorch/serialize-parity-v1/resolve/main/bundle.tar",
+        weights_sha256: "7c20267db5706421e7367c4d275346114a43ff6d55e6ff1aa11069bc45562296",
+        format: WeightsFormat::FerrotorchStateDict,
+        num_parameters: 0,
+    },
 ];
 
 /// List all available pretrained models.

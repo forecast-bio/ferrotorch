@@ -80,7 +80,19 @@ const BINGET: u8 = 0x68;
 const LONG_BINGET: u8 = 0x6a;
 const GLOBAL: u8 = 0x63;
 const SHORT_BINUNICODE: u8 = 0x8c;
-const BINUNICODE: u8 = 0x8d;
+// Pickle protocol-2 `BINUNICODE` opcode is `0x58` ('X'), with a
+// 4-byte little-endian length prefix. The protocol-4 `BINUNICODE8`
+// variant uses `0x8d` with an 8-byte length, which we do not parse
+// today (no torchvision / huggingface checkpoint we've seen needs
+// strings larger than 4 GiB).
+//
+// Prior to #1169, this constant was incorrectly set to `0x8d`,
+// which made the parser silently miss every 4-byte-length unicode
+// string and bail out with "unsupported pickle opcode 0x58" on
+// any modern ZIP-pickle .pth (e.g. resnet18-f37072fd.pth). Fixed
+// inline because the rest of the parser logic for BINUNICODE
+// already matches the spec.
+const BINUNICODE: u8 = 0x58;
 const BININT1: u8 = 0x4b;
 const BININT: u8 = 0x4a;
 const BININT2: u8 = 0x4d;
@@ -96,8 +108,20 @@ const APPEND: u8 = 0x61;
 const APPENDS: u8 = 0x65;
 const STOP: u8 = 0x2e;
 const BINPERSID: u8 = 0x51;
-const SHORT_BINBYTES: u8 = 0x42;
-const BINBYTES: u8 = 0x44;
+// Pickle protocol-3 BINBYTES opcodes:
+//   * `BINBYTES`       = `0x42` ('B'), 4-byte little-endian length.
+//   * `SHORT_BINBYTES` = `0x43` ('C'), 1-byte length.
+//   * `BINBYTES8`      = `0x8e`,        8-byte length (not parsed).
+//
+// Prior to #1169, these two constants were swapped (`SHORT_BINBYTES`
+// claimed `0x42` and `BINBYTES` claimed `0x44`, which is not even a
+// defined pickle opcode). The parser logic *inside* the match arms
+// was already correct for each variant — only the opcode discriminants
+// were wrong, so legitimate `BINBYTES` (0x42) streams were silently
+// routed through the `SHORT_BINBYTES` arm and either truncated or
+// produced opcode-error failures further downstream.
+const BINBYTES: u8 = 0x42;
+const SHORT_BINBYTES: u8 = 0x43;
 const SHORT_BINSTRING: u8 = 0x55;
 const BINSTRING: u8 = 0x54;
 const STACK_GLOBAL: u8 = 0x93;
@@ -416,10 +440,37 @@ pub fn parse_pickle(data: &[u8]) -> FerrotorchResult<PickleValue> {
             REDUCE => {
                 let args = stack.pop().ok_or_else(|| pickle_err("REDUCE underflow"))?;
                 let callable = stack.pop().ok_or_else(|| pickle_err("REDUCE underflow"))?;
-                stack.push(PickleValue::Reduce {
-                    callable: Box::new(callable),
-                    args: Box::new(args),
-                });
+                // Special-case the dict-constructor pattern that real
+                // PyTorch ZIP-pickle checkpoints emit at the top of
+                // every state_dict:
+                //
+                //   GLOBAL 'collections' 'OrderedDict' EMPTY_TUPLE REDUCE
+                //   MARK <k1 v1 k2 v2 ...> SETITEMS STOP
+                //
+                // The previous behavior pushed a `Reduce` here, and
+                // SETITEMS then errored with "TOS is not a dict". This
+                // shows up for torchvision's modern resnet18 (and
+                // every other 2024+ HF ZIP-pickle .pth we tested).
+                // Substituting an empty `Dict` keeps the rest of the
+                // parser happy without losing fidelity — the
+                // collections.OrderedDict / dict callables are pure
+                // constructors of an empty dict; the entries get
+                // appended by the SETITEMS arm immediately after.
+                let is_dict_ctor = matches!(
+                    &callable,
+                    PickleValue::Global { module, name }
+                        if (module == "collections" && name == "OrderedDict")
+                            || (module == "builtins" && name == "dict")
+                            || (module == "__builtin__" && name == "dict")
+                );
+                if is_dict_ctor && matches!(&args, PickleValue::Tuple(items) if items.is_empty()) {
+                    stack.push(PickleValue::Dict(Vec::new()));
+                } else {
+                    stack.push(PickleValue::Reduce {
+                        callable: Box::new(callable),
+                        args: Box::new(args),
+                    });
+                }
             }
 
             NEWOBJ => {
@@ -672,16 +723,40 @@ fn try_extract_tensor_info(name: &str, value: &PickleValue) -> Option<TensorInfo
     let (callable, args) = reduce?;
 
     // Verify this is a tensor rebuild call.
-    let is_rebuild = match callable {
-        PickleValue::Global { module, name } => {
-            (module == "torch._utils"
+    let is_rebuild_tensor = matches!(
+        callable,
+        PickleValue::Global { module, name }
+            if (module == "torch._utils"
                 && (name == "_rebuild_tensor_v2" || name == "_rebuild_tensor_v3"))
-                || (module == "torch" && name == "_utils._rebuild_tensor_v2")
-        }
-        _ => false,
-    };
+            || (module == "torch" && name == "_utils._rebuild_tensor_v2")
+    );
 
-    if !is_rebuild {
+    // Modern PyTorch state_dicts wrap parameter tensors in
+    // `_rebuild_parameter(tensor, requires_grad, state_dict)`. We need
+    // to recurse into `args[0]` to find the underlying tensor rebuild
+    // call. Without this branch, only buffers / running stats (which
+    // are stored as raw `_rebuild_tensor_v2` values) load — every
+    // `nn.Parameter` (conv weights, BN affine, linear weights and
+    // biases) gets silently dropped. Surfaced by resnet18-f37072fd:
+    // 102 torch tensors -> 40 ferrotorch tensors before the fix.
+    let is_rebuild_parameter = matches!(
+        callable,
+        PickleValue::Global { module, name }
+            if module == "torch._utils" && name == "_rebuild_parameter"
+    );
+
+    if is_rebuild_parameter {
+        let PickleValue::Tuple(args_vec) = args else {
+            return None;
+        };
+        if args_vec.is_empty() {
+            return None;
+        }
+        // The first argument is the underlying tensor — recurse.
+        return try_extract_tensor_info(name, &args_vec[0]);
+    }
+
+    if !is_rebuild_tensor {
         return None;
     }
 
@@ -1396,9 +1471,35 @@ mod tests {
     }
 
     #[test]
-    fn test_pickle_reduce() {
+    fn test_pickle_reduce_ordered_dict_collapses_to_dict() {
+        // `collections.OrderedDict()` (i.e. EMPTY_TUPLE + REDUCE on
+        // the OrderedDict global) is special-cased to produce an
+        // empty `Dict([])` so that the subsequent SETITEMS can fill
+        // it. This matches the real ZIP-pickle layout torch emits
+        // for every state_dict (#1169). The non-dict-ctor REDUCE
+        // path is exercised by `test_pickle_reduce_non_dict_global`.
         let mut data = vec![0x80, 0x02, GLOBAL];
         data.extend_from_slice(b"collections\nOrderedDict\n");
+        data.push(EMPTY_TUPLE);
+        data.push(REDUCE);
+        data.push(STOP);
+        match parse_pickle(&data).unwrap() {
+            PickleValue::Dict(entries) => {
+                assert!(entries.is_empty(), "expected empty Dict, got {entries:?}");
+            }
+            other => panic!("expected Dict([]), got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_pickle_reduce_non_dict_global() {
+        // REDUCE on a non-dict global should still produce a generic
+        // `Reduce` node — the special-case only fires for
+        // `collections.OrderedDict` / `builtins.dict` /
+        // `__builtin__.dict`. Pick a random torch utility as the
+        // representative non-dict callable.
+        let mut data = vec![0x80, 0x02, GLOBAL];
+        data.extend_from_slice(b"torch._utils\n_rebuild_tensor_v2\n");
         data.push(EMPTY_TUPLE);
         data.push(REDUCE);
         data.push(STOP);
@@ -1407,7 +1508,7 @@ mod tests {
                 assert!(matches!(
                     *callable,
                     PickleValue::Global { ref module, ref name }
-                        if module == "collections" && name == "OrderedDict"
+                        if module == "torch._utils" && name == "_rebuild_tensor_v2"
                 ));
                 assert!(matches!(*args, PickleValue::Tuple(ref v) if v.is_empty()));
             }

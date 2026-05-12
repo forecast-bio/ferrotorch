@@ -246,11 +246,25 @@ const ATTR_TYPE_INT: i32 = 2;
 #[allow(dead_code)]
 const ATTR_TYPE_INTS: i32 = 7;
 
-// TensorProto
+// TensorProto field numbers (from onnx.proto3 — verified against the
+// `onnx==1.21` protobuf descriptor, May 2026).
+//   * `dims`      = 1   (repeated int64)
+//   * `data_type` = 2   (int32 enum)
+//   * `name`      = 8   (string)
+//   * `raw_data`  = 9   (bytes — little-endian C layout)
+//
+// Prior to #1169, `TENSOR_RAW_DATA` was set to `13`, which is
+// `external_data` (a `repeated StringStringEntryProto` message),
+// not `raw_data`. Every initializer therefore round-tripped through
+// the wrong field, and ONNX Runtime / `onnx.load` rejected the whole
+// `.onnx` file with "Error parsing message with type
+// 'onnx.TensorProto'". The fix is purely a constant correction —
+// the byte layout the encoder writes is already the right
+// little-endian C-order convention for `raw_data`.
 const TENSOR_DIMS: u32 = 1;
 const TENSOR_DATA_TYPE: u32 = 2;
 const TENSOR_NAME: u32 = 8;
-const TENSOR_RAW_DATA: u32 = 13;
+const TENSOR_RAW_DATA: u32 = 9;
 
 // ValueInfoProto
 const VALUE_INFO_NAME: u32 = 1;
