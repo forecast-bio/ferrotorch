@@ -6,5 +6,8 @@
   "priority": "low",
   "created_by": "y4rr",
   "created_at": "2026-05-12T18:44:15.378076842Z",
-  "updated_at": "2026-05-12T18:44:15.378076842Z"
+  "updated_at": "2026-05-12T18:44:16.859305528Z",
+  "labels": [
+    "llama,quant"
+  ]
 }
