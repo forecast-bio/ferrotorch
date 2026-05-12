@@ -3,12 +3,13 @@
   "display_id": 1129,
   "title": "Pass 5.G.5: ferrotorch-llama beam_search / spec_decode K+1 forwards per step (no KV-cache)",
   "description": "Pass 4 finding (umbrella #982) — ferrotorch-llama audit, PERF_OBVIOUS.\n\n- src/spec_decode.rs:264-290 — K verify forwards per round, each rebuilding prefix = context + draft_tokens[0..j] and recomputing all prior tokens. Quadratic in draft_k per generation step; K=4 default already costs ~5× target work vs. the paper's batched verify.\n- src/generation.rs:442-499 (beam_search) — same shape: per step, runs live.len() full-prefix forward passes (forward_from_ids) with no KV-cache. With num_beams=4 this is 4× cost of greedy on a hot path, every step.\n- src/gpu.rs:818-854 (build_rope_caches) — Llama 3.3 70B max_position_embeddings = 131_072, head_dim = 128 → 16.7M f64 trig calls on the host at construct time. Visible startup latency.\n\nArchitectural blocker: spec_decode.rs:42-53 ModelHandle::forward_ids returns only last-position logits as Vec<f64>; structural reason a batched-verify path is impossible without a trait extension.\n\nAcceptance:\n- Extend ModelHandle trait with batched verify (returns per-position logits)\n- Wire KV-cache through beam_search live-prefix forwards (PyTorch generate() uses past_key_values)\n- f32 cos/sin for build_rope_caches (or vectorized f64); cache once across model instances if config matches.",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
   "created_by": "y4rr",
   "created_at": "2026-05-10T07:28:51.310466953Z",
-  "updated_at": "2026-05-10T07:28:52.552458901Z",
+  "updated_at": "2026-05-12T18:41:38.422256158Z",
+  "closed_at": "2026-05-12T18:41:38.422256158Z",
   "labels": [
     "audit,perf,llama"
   ]
