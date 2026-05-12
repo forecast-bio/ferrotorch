@@ -1,0 +1,10 @@
+{
+  "uuid": "7c2a248d-8c01-4b15-b599-7b000a204dae",
+  "issue_uuid": "f0345004-a5db-4267-ab48-0667bfa8155e",
+  "author": "y4rr",
+  "content": "GpuVaeDecoder closure: GPU path mirrors CPU VaeDecoder structure; weights as CudaSlice<f32> in GpuDevice. New GPU primitives: gpu_group_norm_f32 (32 groups, ε=1e-6) + gpu_upsample_nearest_2x_f32. PASS bit-level: cosine_sim=1.0, max_abs=2.6e-5, ||rust||=||ref||=171.17. Even tighter than CPU's 1e-3 (cuBLAS f32 accumulation more deterministic than CPU reduction order). 0 dropped keys. 284 ferrotorch-gpu tests pass.",
+  "created_at": "2026-05-12T07:16:08.651462266Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAKYdoAPhQJkYZI7JtQKNE0okfmKPDIRaatEBPsyabNMo3xCpPQrwNMPgPisNNMzXayaVTDwvzjTLDX+rbBKfSDA=="
+}
