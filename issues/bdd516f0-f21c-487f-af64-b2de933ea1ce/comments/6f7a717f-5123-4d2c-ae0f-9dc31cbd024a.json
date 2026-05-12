@@ -1,0 +1,10 @@
+{
+  "uuid": "6f7a717f-5123-4d2c-ae0f-9dc31cbd024a",
+  "issue_uuid": "bdd516f0-f21c-487f-af64-b2de933ea1ce",
+  "author": "y4rr",
+  "content": "Plan: Phase F closure. Compose B.3a (VAE decoder), B.3b (UNet), B.3c (CLIP) + new DDIM scheduler into StableDiffusionPipeline. Pin reference via diffusers, dump per-step fixtures to HF, write rust pipeline that reads init_latent from mirror (rust PRNG != torch PRNG), verify each stage (text_embeds, latents, noise predictions, final image) meets per-stage tolerance.",
+  "created_at": "2026-05-12T05:31:49.385619656Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABARTB1HJXH69y0+ruY3K5ltobyX6ri2Iq3pTh1pOm9fscUWexpzGfVW84F6Zo4zjFCrIN2ddmbl46+KeK1Ml5tCA=="
+}
