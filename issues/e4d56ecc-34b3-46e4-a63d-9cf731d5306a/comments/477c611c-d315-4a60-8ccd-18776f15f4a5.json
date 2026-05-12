@@ -1,0 +1,10 @@
+{
+  "uuid": "477c611c-d315-4a60-8ccd-18776f15f4a5",
+  "issue_uuid": "e4d56ecc-34b3-46e4-a63d-9cf731d5306a",
+  "author": "y4rr",
+  "content": "Decision: ferrotorch-core::roll<T> takes (shifts: i64, dim: usize) — a single-axis API. The kernel matches that single-axis surface. Multi-axis 'shifts/dims' rolling is naturally expressed as repeated single-axis rolls; the unit test for the kernel will compose two single-axis rolls to verify a 2-D shift, but the public Rust signature is unchanged.",
+  "created_at": "2026-05-12T19:16:28.779297299Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAbCLJQ8slUiTFv6zs4iTpt2M9ISvXfDdNCyyh8wYJJavaSKq+5mR/fwlHNpR2efiUeq1f5VXc6uDebtzM4PaxDQ=="
+}
