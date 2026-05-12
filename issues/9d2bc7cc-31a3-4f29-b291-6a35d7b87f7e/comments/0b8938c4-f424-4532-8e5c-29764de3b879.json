@@ -1,0 +1,10 @@
+{
+  "uuid": "0b8938c4-f424-4532-8e5c-29764de3b879",
+  "issue_uuid": "9d2bc7cc-31a3-4f29-b291-6a35d7b87f7e",
+  "author": "y4rr",
+  "content": "Observation: Inventory complete — ferrotorch-distributions exports 28 public distributions: Bernoulli, Beta, Categorical, Cauchy, Dirichlet, Exponential, Gamma, Gumbel, HalfNormal, Independent, Kumaraswamy, Laplace, LogNormal, LowRankMultivariateNormal, MixtureSameFamily, Multinomial, MultivariateNormal, Normal, OneHotCategorical, Pareto, Poisson, RelaxedBernoulli, RelaxedOneHotCategorical, StudentT, TransformedDistribution, Uniform, VonMises, Weibull. Plus kl::kl_divergence with same-family pairs: Normal-Normal, Bernoulli-Bernoulli, Uniform-Uniform, Categorical-Categorical, Laplace-Laplace, Exponential-Exponential, Gamma-Gamma, Poisson-Poisson + cross-family Normal-Uniform, Uniform-Normal, Gamma-Exponential, Exponential-Gamma. CRITICAL: ferrotorch_core::creation::rand/randn use time-seeded xorshift PRNG — not seedable. Hence moment-based comparison (mean/var with MC noise budget) is required by physics, not just preference.",
+  "created_at": "2026-05-12T15:17:18.269285225Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA2/8KeMj83wjGfyGQk7aUcnB78THAZggkw9FQemdHH7I/oQ/FZmqUvo9Jq059mhwLdw8DOt37lUKNz9KCdxSJAw=="
+}
