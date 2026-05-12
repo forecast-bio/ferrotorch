@@ -3,12 +3,13 @@
   "display_id": 1123,
   "title": "Pass 5.F.1: README/lib.rs API surface drift across 6+ crates",
   "description": "Pass 4 finding (umbrella #982) — DOC_DRIFT, multi-crate.\n\nCrates whose README/lib.rs surface diverges from actual exports:\n- ferrotorch (umbrella) README:12 claims '19 optimizers' but prelude exports 4; lib.rs:23 lists 17 submodules, README:60-75 omits profiler/hub/cubecl/mps/xpu/distributed; quick-start example never imports Module despite using it\n- ferrotorch-data README:18 claims interop::{load_numpy, load_npz, ArrowDataset} — none exist; actual exports are tensor_to_arrow_array etc.\n- ferrotorch-data lib.rs:19-20 + dataloader.rs:31,223,323 leak CL-377/CL-378 tracker IDs into rustdoc\n- ferrotorch-train README claims RNG state save/restore; impl does not (overlaps with #1108)\n- ferrotorch-distributions lib.rs:13-37 distribution table omits Pareto, Kumaraswamy, VonMises, Weibull\n- ferrotorch-hub README example uses unet/maskrcnn/deeplabv3 entries that fail-fast (placeholder SHAs)\n- ferrotorch-serialize README signatures don't match actual save_state_dict/load_state_dict shapes\n- ferrotorch-profiler README:11 lists OpSummary fields (count, total time, mean, **min**, max) — struct has no min field\n\nAcceptance:\n- One PR per crate, OR a single sweep PR that updates README + crate-root rustdoc to match real exports\n- Add a doc-drift CI check (e.g., extract pub items, diff against README's example imports).",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
   "created_by": "y4rr",
   "created_at": "2026-05-10T07:27:57.455912650Z",
-  "updated_at": "2026-05-10T07:27:58.769216758Z",
+  "updated_at": "2026-05-12T20:28:00.279958003Z",
+  "closed_at": "2026-05-12T20:28:00.279958003Z",
   "labels": [
     "audit,doc-drift,multi-crate"
   ]
