@@ -3,12 +3,13 @@
   "display_id": 1122,
   "title": "Pass 5.E.4: ferrotorch-optim string-keyed state HashMap<String, _> → typed key",
   "description": "Pass 4 finding (umbrella #982) — ferrotorch-optim audit, ARCH_SMELL.\n\n11/14 optimizers regenerate `format!(\"g{group_idx}_p{param_idx}\")` inside hot inner loops to key per-param HashMap<String, _> state (56 param_key callsites across src/). String-keyed state at this granularity is also fragile under param-group reordering.\n\nAcceptance:\n- Define a typed ParamKey { group: u32, param: u32 } (Copy + Hash + Eq) in optimizer.rs\n- Migrate 11 optimizers to HashMap<ParamKey, _>\n- Eliminates per-step format! allocation (PERF_OBVIOUS adjacent — see #1118)\n- No public API change; serialization compat needs care if state_dict round-trips through string keys.",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
   "created_by": "y4rr",
   "created_at": "2026-05-10T07:27:37.825432148Z",
-  "updated_at": "2026-05-10T07:27:38.968101037Z",
+  "updated_at": "2026-05-12T20:19:22.153864509Z",
+  "closed_at": "2026-05-12T20:19:22.153864509Z",
   "labels": [
     "audit,arch-smell,optim,refactor"
   ]
