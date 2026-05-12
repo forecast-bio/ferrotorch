@@ -1,0 +1,10 @@
+{
+  "uuid": "6ef04633-da10-4dfe-aaf2-cb71008c92df",
+  "issue_uuid": "51f20aa6-18a4-4171-b203-c7942dbf7526",
+  "author": "y4rr",
+  "content": "Added brew install pkg-config gmp mpfr step + -v flag on cargo build to surface build.rs failure output. core-math-sys silent failure was due to missing C math libs on the macos-latest runner.",
+  "created_at": "2026-05-12T22:26:47.842154438Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABArDqalOuhS2lAb6UtMKOaazZqCN7aRCCf1uNNOFYI75NoU0OC6O+SyhTitPw9tXs4akyaAIsASAzpwhhCbR9tDA=="
+}
