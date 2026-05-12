@@ -11,6 +11,14 @@
 //!
 //! These tests require a real CUDA device and only run with the
 //! `cuda` feature enabled. CL-380.
+//!
+//! Gating (issue #1118): the file is compiled only with `--features cuda`
+//! and each test is also `#[ignore]`-gated so that a default
+//! `cargo test -p ferrotorch-profiler --features cuda` does not silently
+//! "pass" on a host without a CUDA driver. Opt in on a real CUDA box
+//! with `cargo test -p ferrotorch-profiler --features cuda -- --ignored`.
+//! This mirrors the convention used by other GPU-only integration tests
+//! in this workspace (see e.g. `ferrotorch-llama/tests/conformance_pretrained_causal_lm_gpu.rs`).
 
 #![cfg(feature = "cuda")]
 
@@ -19,13 +27,21 @@ use std::sync::Arc;
 use cudarc::driver::CudaContext;
 use ferrotorch_profiler::{CudaKernelScope, ProfileConfig, with_profiler};
 
-fn ctx() -> Option<Arc<CudaContext>> {
-    CudaContext::new(0).ok()
+/// Acquire a CUDA context for device 0. Panics with a clear message
+/// when the driver/device is unavailable — these tests are
+/// `#[ignore]`-gated and should only be invoked on a host that actually
+/// has CUDA, so a missing device is a hard failure, not a silent skip.
+fn ctx() -> Arc<CudaContext> {
+    CudaContext::new(0).expect(
+        "CUDA device 0 must be available — these tests are #[ignore]-gated \
+         and should only be run on a CUDA host via `-- --ignored`",
+    )
 }
 
 #[test]
+#[ignore = "requires CUDA device — enable with --ignored"]
 fn cuda_kernel_scope_basic_lifecycle() {
-    let Some(c) = ctx() else { return };
+    let c = ctx();
     let stream = c.default_stream();
 
     let ((), report) = with_profiler(ProfileConfig::default(), |p| {
@@ -52,9 +68,10 @@ fn cuda_kernel_scope_basic_lifecycle() {
 }
 
 #[test]
+#[ignore = "requires CUDA device — enable with --ignored"]
 fn cuda_kernel_scope_measures_real_gpu_time() {
     use ferrotorch_profiler::ProfileEvent;
-    let Some(c) = ctx() else { return };
+    let c = ctx();
     let stream = c.default_stream();
 
     // Run a meaningful amount of GPU work so the elapsed time is
@@ -102,8 +119,9 @@ fn cuda_kernel_scope_measures_real_gpu_time() {
 }
 
 #[test]
+#[ignore = "requires CUDA device — enable with --ignored"]
 fn flush_cuda_kernels_is_idempotent() {
-    let Some(c) = ctx() else { return };
+    let c = ctx();
     let stream = c.default_stream();
 
     let ((), report) = with_profiler(ProfileConfig::default(), |p| {
@@ -125,7 +143,9 @@ fn flush_cuda_kernels_is_idempotent() {
 #[test]
 fn flush_cuda_kernels_handles_empty_queue() {
     // Calling flush with no pending scopes should not error or panic.
-    let _c_present = ctx().is_some();
+    // No CUDA context required — this exercises only the profiler's
+    // internal queue management, so it remains runnable in the default
+    // `cargo test --features cuda` invocation.
     let ((), report) = with_profiler(ProfileConfig::default(), |p| {
         p.flush_cuda_kernels();
         assert_eq!(p.pending_cuda_count(), 0);
@@ -134,9 +154,10 @@ fn flush_cuda_kernels_handles_empty_queue() {
 }
 
 #[test]
+#[ignore = "requires CUDA device — enable with --ignored"]
 fn multiple_kernels_finalize_in_registration_order() {
     use ferrotorch_profiler::ProfileEvent;
-    let Some(c) = ctx() else { return };
+    let c = ctx();
     let stream = c.default_stream();
 
     let ((), report) = with_profiler(ProfileConfig::default(), |p| {
