@@ -2,11 +2,12 @@
   "uuid": "11025fc4-68fa-4477-a400-effec2a18161",
   "display_id": 1159,
   "title": "ferrotorch-ml tabular ops real-artifact harness vs scikit-learn",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-12T00:09:56.808925944Z",
-  "updated_at": "2026-05-12T00:09:58.187010125Z",
+  "updated_at": "2026-05-12T00:23:12.443589555Z",
+  "closed_at": "2026-05-12T00:23:12.443589555Z",
   "labels": [
     "real-artifact"
   ]
