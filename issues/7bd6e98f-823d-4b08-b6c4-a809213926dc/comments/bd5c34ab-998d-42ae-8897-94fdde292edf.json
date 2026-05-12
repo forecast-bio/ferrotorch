@@ -1,0 +1,10 @@
+{
+  "uuid": "bd5c34ab-998d-42ae-8897-94fdde292edf",
+  "issue_uuid": "7bd6e98f-823d-4b08-b6c4-a809213926dc",
+  "author": "y4rr",
+  "content": "Removed 2 duplicate #1158 short-line CHANGELOG entries (auto-emitted by crosslink close before commit added the long-line entry). Kept the long-line entry. No code/test impact.",
+  "created_at": "2026-05-12T00:24:32.647084677Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAh/WnQRrSZYL5Ckuwhtk2vyP0FCJjl+A5AVykYN8+fiJHJIkaYLP+ojPl+uJBXFTQFwJEu0mIH6aSSr9LyGiFBg=="
+}
