@@ -2,11 +2,12 @@
   "uuid": "51f20aa6-18a4-4171-b203-c7942dbf7526",
   "display_id": 1175,
   "title": "macOS CI: core-math-sys build failure on Apple Silicon runner",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-12T22:24:58.219332417Z",
-  "updated_at": "2026-05-12T22:24:59.612943506Z",
+  "updated_at": "2026-05-12T22:27:14.752641266Z",
+  "closed_at": "2026-05-12T22:27:14.752641266Z",
   "labels": [
     "ci"
   ]
