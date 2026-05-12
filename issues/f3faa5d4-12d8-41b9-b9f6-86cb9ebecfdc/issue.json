@@ -2,11 +2,12 @@
   "uuid": "f3faa5d4-12d8-41b9-b9f6-86cb9ebecfdc",
   "display_id": 1170,
   "title": "ferrotorch-jit tracing + AoT compilation real-artifact harness",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-12T16:29:12.070521374Z",
-  "updated_at": "2026-05-12T16:29:13.634391410Z",
+  "updated_at": "2026-05-12T16:40:38.791725019Z",
+  "closed_at": "2026-05-12T16:40:38.791725019Z",
   "labels": [
     "real-artifact"
   ]
