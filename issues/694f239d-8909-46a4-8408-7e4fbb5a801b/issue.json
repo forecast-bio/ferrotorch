@@ -3,12 +3,13 @@
   "display_id": 1112,
   "title": "Pass 5.C.5: ferrotorch-core cross() ignores dim parameter; full_meta ignores _value",
   "description": "Pass 4 finding (umbrella #982) — ferrotorch-core audit, STUB bucket (2 findings).\n\n- cross() accepts a `dim` parameter and silently ignores it — always operates on the canonical axis. PyTorch parity broken: torch.cross(a, b, dim=-1) and dim=0 must produce different outputs on non-trivial shapes.\n- full_meta accepts a _value parameter and silently ignores it — uses default fill instead.\n\nBoth are reachable from public API. (File:line cites in the core audit subagent report — see #982 rollup.)\n\nAcceptance:\n- cross(): respect the dim arg; add discriminating fixture covering at least dim=0 and dim=-1 on a non-square tensor\n- full_meta: respect the _value arg; remove the underscore prefix indicating intentional-discard.",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
   "created_by": "y4rr",
   "created_at": "2026-05-10T07:23:36.070869681Z",
-  "updated_at": "2026-05-10T07:23:37.364743834Z",
+  "updated_at": "2026-05-12T17:38:44.007951964Z",
+  "closed_at": "2026-05-12T17:38:44.007951964Z",
   "labels": [
     "audit,stub,core"
   ]
