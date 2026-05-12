@@ -624,6 +624,45 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::SafeTensors,
         num_parameters: 9_155,
     },
+    // #1159: ml-sklearn-parity-v1 — Phase D.3 sklearn parity fixtures for
+    // the tabular/classical-ML gap. The mirror is a fixture *bundle*
+    // (`bundle.tar`) plus 5 per-config subfolders (pca_n4 /
+    // standard_scaler / one_hot_encoder / kfold_5 /
+    // train_test_split_80_20). Each config ships its inputs + sklearn
+    // reference outputs in the same `[u32 num_tensors]` +
+    // `[u32 ndim][u32 shape][f32]` multi-tensor format the dataloader /
+    // optimizer pins use, plus a `meta.json` recording the config and
+    // tolerance.
+    //
+    // Two configs (kfold_5, train_test_split_80_20) ship JSON-only
+    // outputs (integer index lists) because the rust `rand` SmallRng
+    // shuffles in a different order than numpy's PRNG — these are
+    // verified with SET-equality, not ORDER-equality (Option B from
+    // #1156). The remaining 3 configs are ORDER/MAX_ABS comparable:
+    // PCA tolerates per-PC sign flip and uses cosine_sim ≥ 0.9999;
+    // StandardScaler and OneHotEncoder are essentially exact f32
+    // arithmetic (both sklearn and ferrolearn use biased variance /n;
+    // OneHotEncoder is integer-valued).
+    //
+    // `weights_url`/`weights_sha256` point at the tar bundle so this
+    // registry entry has the same shape as the other parity bundles;
+    // the verify harness itself pulls individual files via
+    // `hf_hub_download` and does not consume the tar. The
+    // FerrotorchStateDict format tag indicates "not a HF safetensors
+    // checkpoint" — the bundle is a single-file convenience archive
+    // and not consumed by the safetensors loader. Companion files:
+    //   * `scripts/pin_pretrained_ml_fixtures.py`
+    //   * `scripts/verify_ml_inference.py`
+    //   * `ferrotorch-ml/examples/ml_op_dump.rs`
+    //   * `ferrotorch-ml/tests/conformance_sklearn_parity.rs`
+    ModelInfo {
+        name: "ml-sklearn-parity-v1",
+        description: "Phase D.3 sklearn parity fixtures: PCA(n=4), StandardScaler, OneHotEncoder, KFold(5,shuffle,rs=42), train_test_split(0.2,rs=42). 5 configs over a fixed deterministic dataset (np.random.RandomState(42).randn(100,10) + i%4 labels). BSD-3-Clause; real-artifact baseline for ferrotorch-ml vs scikit-learn (#1159).",
+        weights_url: "https://huggingface.co/ferrotorch/ml-sklearn-parity-v1/resolve/main/bundle.tar",
+        weights_sha256: "baafb9b5a10669cad13c39320923f9fa5482291dac8ab2395503390bc4bc4a3e",
+        format: WeightsFormat::FerrotorchStateDict,
+        num_parameters: 0,
+    },
 ];
 
 /// List all available pretrained models.
