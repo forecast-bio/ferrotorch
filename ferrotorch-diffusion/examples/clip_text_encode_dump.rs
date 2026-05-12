@@ -44,17 +44,30 @@ use ferrotorch_core::{FerrotorchResult, Tensor, TensorStorage};
 use ferrotorch_diffusion::{load_clip_text_encoder, ClipTextConfig};
 use ferrotorch_hub::{hf_download_model, HubCache};
 
+/// Target device for the forward pass.
+///
+/// `--device gpu` requires the `cuda` cargo feature; without it the
+/// example errors out at arg-parse time so a missing-feature build
+/// can't silently fall back to CPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Device {
+    Cpu,
+    Gpu,
+}
+
 #[derive(Debug)]
 struct Args {
     model: String,
     output: PathBuf,
     input_ids: Option<PathBuf>,
+    device: Device,
 }
 
 fn parse_args() -> Result<Args, String> {
     let mut model: Option<String> = None;
     let mut output: Option<PathBuf> = None;
     let mut input_ids: Option<PathBuf> = None;
+    let mut device = Device::Cpu;
     let argv: Vec<String> = std::env::args().collect();
     let mut i = 1usize;
     while i < argv.len() {
@@ -75,6 +88,15 @@ fn parse_args() -> Result<Args, String> {
                 ));
                 i += 2;
             }
+            "--device" => {
+                let v = argv.get(i + 1).ok_or("--device needs a value (cpu|gpu)")?;
+                device = match v.as_str() {
+                    "cpu" => Device::Cpu,
+                    "gpu" => Device::Gpu,
+                    other => return Err(format!("--device must be cpu|gpu, got {other:?}")),
+                };
+                i += 2;
+            }
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
@@ -82,6 +104,7 @@ fn parse_args() -> Result<Args, String> {
         model: model.ok_or("--model is required (e.g. --model sd-v1-5-clip-text-encoder)")?,
         output: output.ok_or("--output is required (path to last_hidden_state .bin)")?,
         input_ids,
+        device,
     })
 }
 
@@ -251,7 +274,13 @@ fn run() -> FerrotorchResult<()> {
     );
 
     // -- 5. Forward + dump. --------------------------------------------
-    let out = encoder.forward_from_ids(&u32_ids)?;
+    let out = match args.device {
+        Device::Cpu => {
+            eprintln!("[clip_text_encode_dump] device = cpu");
+            encoder.forward_from_ids(&u32_ids)?
+        }
+        Device::Gpu => run_gpu(&encoder, &u32_ids)?,
+    };
     let out_shape = out.shape();
     let out_data = out.data()?;
     assert_eq!(
@@ -321,6 +350,45 @@ fn locate_weights(dir: &Path) -> FerrotorchResult<PathBuf> {
             "model.safetensors not found in {} (CLIP text encoder mirror layout requires it)",
             dir.display()
         ),
+    })
+}
+
+/// GPU forward path. Builds the [`GpuClipTextEncoder`] from the already-
+/// loaded CPU encoder's state-dict and runs `encode` on device 0.
+///
+/// Without the `cuda` cargo feature this is a hard error — the example
+/// must refuse to silently fall back to CPU when the harness asked for
+/// GPU.
+#[cfg(feature = "cuda")]
+fn run_gpu(
+    encoder: &ferrotorch_diffusion::ClipTextEncoder<f32>,
+    input_ids: &[u32],
+) -> FerrotorchResult<Tensor<f32>> {
+    use ferrotorch_diffusion::gpu::GpuClipTextEncoder;
+    use ferrotorch_gpu::GpuDevice;
+
+    eprintln!("[clip_text_encode_dump] device = gpu");
+    let device =
+        GpuDevice::new(0).map_err(|e| ferrotorch_core::FerrotorchError::InvalidArgument {
+            message: format!("GpuDevice::new(0) failed: {e}"),
+        })?;
+    let (gpu, report) = GpuClipTextEncoder::from_module(encoder, &device)?;
+    eprintln!(
+        "[clip_text_encode_dump] gpu state-dict load: dropped_keys={}",
+        report.dropped.len(),
+    );
+    gpu.encode(input_ids)
+}
+
+#[cfg(not(feature = "cuda"))]
+fn run_gpu(
+    _encoder: &ferrotorch_diffusion::ClipTextEncoder<f32>,
+    _input_ids: &[u32],
+) -> FerrotorchResult<Tensor<f32>> {
+    Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+        message: "--device gpu requires the `cuda` cargo feature \
+                  (build with `--features=cuda`)"
+            .into(),
     })
 }
 
