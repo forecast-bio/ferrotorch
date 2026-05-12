@@ -1,0 +1,10 @@
+{
+  "uuid": "27ed39be-5399-40b2-a273-357f9ed08b30",
+  "issue_uuid": "543c0399-3f76-46b3-a4cc-d6f5d5b36b56",
+  "author": "y4rr",
+  "content": "Plan: (A) hub registry — add EntryKind enum (Model/Fixture) to ModelInfo, update test to skip num_parameters>0 for Fixture (and assert ==0 to enforce explicitness). Mark all 9 fixture-bundle entries as Fixture: optimizer-trajectories-v1, dataloader-batches-v1, ml-sklearn-parity-v1, training-trajectory-v1, sd-v1-5-generation-trajectory, distributions-parity-v1, tokenizer-parity-v1, serialize-parity-v1. Mark jit-trace-parity-v1 as Model (it's a real 212-param MLP with a model.safetensors). All real models (gcn-cora, smollm-135m, ppo-cartpole-v1, etc.) → Model. Issues #1171 (autograd-parity) and #1168 follow-ups not yet in registry, untouched. (B) diffusion example — RunBundle type alias is dead because the non-cuda arm uses a literal tuple. Fix by using the alias in both arms (cuda already uses it), eliminating the type_complexity site too. This is one local change; no #[allow].",
+  "created_at": "2026-05-12T22:17:36.318400476Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAjlnsCpC04xtjr9s3sLJFdH18ZOUkCu/XOjqXXMAsaEgFq+JiV73IyQ1uleLQ7lmD1Tt9y4MQoy4F7OyhtFvvBQ=="
+}
