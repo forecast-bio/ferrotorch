@@ -1,0 +1,10 @@
+{
+  "uuid": "527a2812-b552-475d-b5e7-34148a004746",
+  "issue_uuid": "e4d56ecc-34b3-46e4-a63d-9cf731d5306a",
+  "author": "y4rr",
+  "content": "Plan: (1) Add roll_f32 PTX kernel in new file ferrotorch-gpu/src/roll.rs using the same outer/dim_size/inner factorization the CPU path uses (matches the cumsum kernel pattern). Each thread maps one output element (o, k_new, i): src = (o * dim_size + k_src) * inner + i where k_src = (k_new - shift_norm + dim_size) % dim_size. shift_norm = ((shifts % dim_size) + dim_size) % dim_size. (2) Extend the GpuBackend trait in ferrotorch-core/src/gpu_dispatch.rs with roll_f32(handle, outer, dim_size, inner, shift_norm) -> default Err. (3) Implement roll_f32 in ferrotorch-gpu/src/backend_impl.rs by delegating to gpu_roll. (4) Replace the NotImplementedOnCuda in ops/tensor_ops.rs::roll<T> with the GPU fast path for f32 (same pattern as cumsum_forward). (5) Replace the NotImplementedOnCuda in grad_fns/shape.rs::RollBackward::backward by dispatching to the same backend with the negated shift. (6) Add unit tests in roll.rs (1D shift, 2D multi-axis shift, negative wraparound). (7) Add discriminating GPU-vs-CPU test in ops/tensor_ops.rs gated on the cuda feature.",
+  "created_at": "2026-05-12T19:16:20.953598765Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA9mQsNm3HJ8ToyRc6JJ/XWEU2f3dZGn0CFKIwPmDRosyQjiO1c1pLLSoB0pc1fvzyHU9wyxYdZtKWm0SkGeCKDA=="
+}
