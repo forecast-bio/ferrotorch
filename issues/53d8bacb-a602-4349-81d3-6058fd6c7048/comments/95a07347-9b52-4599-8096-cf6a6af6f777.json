@@ -1,0 +1,10 @@
+{
+  "uuid": "95a07347-9b52-4599-8096-cf6a6af6f777",
+  "issue_uuid": "53d8bacb-a602-4349-81d3-6058fd6c7048",
+  "author": "y4rr",
+  "content": "Plan: Phase G.2 real-artifact harness. (1) Survey ferrotorch-tokenize public surface — done: load_tokenizer(path), encode/decode (with add_special_tokens/skip_special_tokens), encode_batch, apply_chat_template (minijinja), apply_chat_template_to_ids, load_chat_template, vocab_size/token_to_id/id_to_token. (2) Pin script: download tokenizer.json + tokenizer_config.json (+ chat template) from 5 HF tokenizer families (Llama 3 via unsloth/Llama-3.2-1B-Instruct mirror to avoid gated walls, openai/clip-vit-large-patch14, bert-base-uncased, gpt2, HuggingFaceTB/SmolLM-135M). Run Python transformers.AutoTokenizer over ~20 fixed test strings; save per-family JSON: strings, encode_with_special, encode_no_special, decode_with_special_keep, decode_with_special_skip, decode_no_special, plus chat-template render for system+user+assistant conv (add_generation_prompt false and true). Bundle to bundle.tar, upload to ferrotorch/tokenizer-parity-v1. (3) Rust dump: ferrotorch-tokenize/examples/tokenizer_parity_dump.rs — args --family --fixture-dir --output-dir. (4) Verify harness: scripts/verify_tokenizer_inference.py — exact integer/string match per family. (5) Cargo test wrapper: ferrotorch-tokenize/tests/conformance_hf_parity.rs #[ignore]-gated, downloads bundle via hf_hub_download and runs in-process. (6) Pin SHA in ferrotorch-hub/src/registry.rs as tokenizer-parity-v1. No tolerance: exact == on all ids and strings.",
+  "created_at": "2026-05-12T15:33:49.678840654Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAH3TKkoAU1hprjj5qwVttL41q0p9PtJoZHGnnCXO2pv+0b/lbOEDDSrEOzd0VyCsJ6+4K415IAmPyKfMSxCuTBg=="
+}
