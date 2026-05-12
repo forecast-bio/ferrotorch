@@ -830,6 +830,64 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::FerrotorchStateDict,
         num_parameters: 0,
     },
+    // #1168: tokenizer-parity-v1 — Phase G.2 HF tokenizer parity
+    // fixtures for `ferrotorch-tokenize`. The mirror is a fixture
+    // *bundle* (`bundle.tar`) plus per-family subfolders. Five
+    // canonical tokenizer families are pinned (Llama 3 Instruct,
+    // CLIP, BERT, GPT-2, SmolLM Instruct) covering BPE + WordPiece
+    // model types, ASCII / unicode / whitespace / code / template
+    // control-token strings, with chat-template renders on the two
+    // Instruct families.
+    //
+    // Each `<family>/` subfolder ships:
+    //   * tokenizer.json (+ tokenizer_config.json, vocab.*, merges.txt
+    //     when upstream provides them) — exactly the same files the
+    //     rust side reads via `ferrotorch_tokenize::load_tokenizer`.
+    //   * strings.json    — the 20-element fixed test corpus.
+    //   * token_ids.json  — Python `tokenizers.Tokenizer` reference
+    //                       encodings (encode_with_special +
+    //                       encode_no_special, lists of u32 per
+    //                       input). The reference is intentionally
+    //                       `tokenizers.Tokenizer` (not
+    //                       `transformers.AutoTokenizer`) because that
+    //                       is exactly the library the rust crate
+    //                       wraps; `transformers` adds
+    //                       `clean_up_tokenization_spaces` and
+    //                       slow-tokenizer-specific decoder layers
+    //                       that the rust crate does not implement.
+    //   * decoded.json    — Python reference decodes
+    //                       (decode_with_special_keep,
+    //                        decode_with_special_skip,
+    //                        decode_no_special).
+    //   * chat_template.json — for families with a chat template
+    //                          (Llama 3 Instruct + SmolLM Instruct):
+    //                          rendered system+user+assistant
+    //                          conversation with and without
+    //                          `add_generation_prompt`. Reference
+    //                          renders come from
+    //                          `transformers.AutoTokenizer.apply_chat_template`
+    //                          (a transformers feature, reproduced by
+    //                          rust via minijinja).
+    //   * meta.json       — provenance: upstream repo, tokenizers /
+    //                       transformers versions, vocab size, chat
+    //                       template presence.
+    //
+    // The harness compares with **exact** equality on every list and
+    // string (no float tolerance — tokenization is integer-domain).
+    // Per-family verdict + first divergent string surface immediately
+    // if a regression lands. `weights_url`/`weights_sha256` pin the
+    // tar bundle so the registry has one SHA to track; the verify
+    // harness itself pulls per-family files via `hf_hub_download`. The
+    // FerrotorchStateDict format tag indicates "not a HF safetensors
+    // checkpoint" — the bundle is a single-file convenience archive.
+    ModelInfo {
+        name: "tokenizer-parity-v1",
+        description: "Phase G.2 HF tokenizer parity fixtures: 5 canonical tokenizer families (Llama 3 BPE Instruct, CLIP BPE, BERT WordPiece, GPT-2 BPE, SmolLM BPE Instruct). 20 fixed test strings per family + a fixed system+user+assistant chat conversation rendered with and without add_generation_prompt. Encode/decode references come from tokenizers.Tokenizer (the exact library the ferrotorch-tokenize rust crate wraps); chat-template renders come from transformers.AutoTokenizer (the rust side reproduces apply_chat_template via minijinja). Mixed upstream licenses; real-artifact baseline for ferrotorch-tokenize parity vs HF (#1168).",
+        weights_url: "https://huggingface.co/ferrotorch/tokenizer-parity-v1/resolve/main/bundle.tar",
+        weights_sha256: "8d949235bb5cfaaea8916dcce001d17fd4b4383c2d5e033272397cf9545d1ef6",
+        format: WeightsFormat::FerrotorchStateDict,
+        num_parameters: 0,
+    },
 ];
 
 /// List all available pretrained models.
