@@ -45,6 +45,17 @@ use ferrotorch_core::{FerrotorchResult, Tensor, TensorStorage};
 use ferrotorch_diffusion::{load_unet, UNet2DConditionConfig};
 use ferrotorch_hub::{hf_download_model, HubCache};
 
+/// Target device for the forward pass.
+///
+/// `--device gpu` requires the `cuda` cargo feature; without it the
+/// example errors out at arg-parse time so a missing-feature build
+/// can't silently fall back to CPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Device {
+    Cpu,
+    Gpu,
+}
+
 #[derive(Debug)]
 struct Args {
     model: String,
@@ -52,6 +63,7 @@ struct Args {
     latent: Option<PathBuf>,
     timestep: Option<PathBuf>,
     text_embedding: Option<PathBuf>,
+    device: Device,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -60,6 +72,7 @@ fn parse_args() -> Result<Args, String> {
     let mut latent: Option<PathBuf> = None;
     let mut timestep: Option<PathBuf> = None;
     let mut text_embedding: Option<PathBuf> = None;
+    let mut device = Device::Cpu;
     let argv: Vec<String> = std::env::args().collect();
     let mut i = 1usize;
     while i < argv.len() {
@@ -92,6 +105,15 @@ fn parse_args() -> Result<Args, String> {
                 ));
                 i += 2;
             }
+            "--device" => {
+                let v = argv.get(i + 1).ok_or("--device needs a value (cpu|gpu)")?;
+                device = match v.as_str() {
+                    "cpu" => Device::Cpu,
+                    "gpu" => Device::Gpu,
+                    other => return Err(format!("--device must be cpu|gpu, got {other:?}")),
+                };
+                i += 2;
+            }
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
@@ -101,6 +123,7 @@ fn parse_args() -> Result<Args, String> {
         latent,
         timestep,
         text_embedding,
+        device,
     })
 }
 
@@ -274,7 +297,13 @@ fn run() -> FerrotorchResult<()> {
     );
 
     // -- 5. Forward + dump. --------------------------------------------
-    let out = unet.forward_t(&latent, &timestep, &text_embedding)?;
+    let out = match args.device {
+        Device::Cpu => {
+            eprintln!("[unet_predict_dump] device = cpu");
+            unet.forward_t(&latent, &timestep, &text_embedding)?
+        }
+        Device::Gpu => run_gpu(&unet, &latent, &timestep, &text_embedding)?,
+    };
     let out_shape = out.shape();
     let out_data = out.data()?;
     assert_eq!(
@@ -338,6 +367,49 @@ fn locate_weights(dir: &Path) -> FerrotorchResult<PathBuf> {
             "neither model.safetensors nor diffusion_pytorch_model.safetensors found in {}",
             dir.display()
         ),
+    })
+}
+
+/// GPU forward path. Builds the [`GpuUNet2DConditional`] from the
+/// already-loaded CPU UNet's state-dict and runs `forward` on device 0.
+///
+/// Without the `cuda` cargo feature this is a hard error — the example
+/// must refuse to silently fall back to CPU when the harness asked for
+/// GPU.
+#[cfg(feature = "cuda")]
+fn run_gpu(
+    unet: &ferrotorch_diffusion::UNet2DConditionModel<f32>,
+    latent: &Tensor<f32>,
+    timestep: &Tensor<f32>,
+    text_embedding: &Tensor<f32>,
+) -> FerrotorchResult<Tensor<f32>> {
+    use ferrotorch_diffusion::gpu::GpuUNet2DConditional;
+    use ferrotorch_gpu::GpuDevice;
+
+    eprintln!("[unet_predict_dump] device = gpu");
+    let device =
+        GpuDevice::new(0).map_err(|e| ferrotorch_core::FerrotorchError::InvalidArgument {
+            message: format!("GpuDevice::new(0) failed: {e}"),
+        })?;
+    let (gpu, report) = GpuUNet2DConditional::from_module(unet, &device)?;
+    eprintln!(
+        "[unet_predict_dump] gpu state-dict load: dropped_keys={}",
+        report.dropped.len(),
+    );
+    gpu.forward(latent, timestep, text_embedding)
+}
+
+#[cfg(not(feature = "cuda"))]
+fn run_gpu(
+    _unet: &ferrotorch_diffusion::UNet2DConditionModel<f32>,
+    _latent: &Tensor<f32>,
+    _timestep: &Tensor<f32>,
+    _text_embedding: &Tensor<f32>,
+) -> FerrotorchResult<Tensor<f32>> {
+    Err(ferrotorch_core::FerrotorchError::InvalidArgument {
+        message: "--device gpu requires the `cuda` cargo feature \
+                  (build with `--features=cuda`)"
+            .into(),
     })
 }
 
