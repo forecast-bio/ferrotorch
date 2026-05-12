@@ -84,6 +84,7 @@ DIST_CONFIGS: list[str] = [
     "dirichlet_k4",
     "mvn_3d",
     "multinomial_k3_n20",    # entropy skipped (torch.Multinomial lacks .entropy())
+    "transformed_normal_affine",  # #1109: TransformedDistribution closed-form entropy
 ]
 
 KL_CONFIGS: list[str] = [
@@ -137,6 +138,13 @@ SKIP_MOMENTS: set[str] = {
     "laplace_0_1",
     "multinomial_k3_n20",
     "poisson_3",
+    # transformed_normal_affine is `TransformedDistribution(Normal(0,1),
+    # [Affine(2,3)])` which has variance = 9. The variance estimator's
+    # standard error at N=10000 is var*sqrt(2/N) ~ 0.127, exceeding the
+    # 0.10 tolerance roughly half the time across independent PRNG runs.
+    # The analytical entropy + log_prob references stay byte-tight to torch
+    # under the 1e-4 floor, so closed-form correctness is verified there.
+    "transformed_normal_affine",
 }
 
 # Distributions where torch does not expose `entropy()`. The Rust example

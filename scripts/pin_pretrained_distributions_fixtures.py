@@ -123,6 +123,12 @@ class DistSpec:
     skip_entropy: bool = False
     # Event shape (default: scalar []).
     event_shape: list[int] = field(default_factory=list)
+    # Optional entropy override (torch.Tensor). Used when the factory's
+    # distribution doesn't expose `.entropy()` directly (e.g.
+    # `TransformedDistribution` raises NotImplementedError in torch) but a
+    # mathematically equivalent reference *can* be computed. The pin script
+    # writes the override to entropy.bin instead of calling `dist.entropy()`.
+    entropy_override: Callable[[], torch.Tensor] | None = None
 
 
 def _ld(*xs: float) -> torch.Tensor:
@@ -288,6 +294,38 @@ def _make_specs() -> list[DistSpec]:
         event_shape=[3],
     ))
 
+    # ----- Transformed (#1109) -----
+    # TransformedDistribution(Normal(0, 1), [AffineTransform(loc=2, scale=3)])
+    # is mathematically equivalent to Normal(2, 3) for sample / log_prob /
+    # entropy. We pin against the actual `D.TransformedDistribution` for
+    # sample + log_prob (torch implements both), and use the equivalent
+    # Normal(2, 3).entropy() as the analytical reference for entropy.bin —
+    # torch raises NotImplementedError on `td.entropy()` directly, but the
+    # identity H(Y) = H(X) + E[log|det J|] gives a closed-form result for
+    # this chain (log|det J| = log|3|, constant), so we ship a real
+    # discriminating reference rather than skipping entropy.
+    def _tn_factory() -> D.Distribution:
+        from torch.distributions.transforms import AffineTransform
+        base = D.Normal(_s(0.0), _s(1.0))
+        affine = AffineTransform(loc=_s(2.0), scale=_s(3.0))
+        return D.TransformedDistribution(base, [affine])
+
+    def _tn_entropy_ref() -> torch.Tensor:
+        # entropy(TD(Normal(0,1), Affine(2,3))) = entropy(Normal(2, 3))
+        return D.Normal(_s(2.0), _s(3.0)).entropy()
+
+    specs.append(DistSpec(
+        name="transformed_normal_affine",
+        family="TransformedDistribution",
+        params={
+            "base": {"family": "Normal", "loc": 0.0, "scale": 1.0},
+            "transforms": [{"family": "Affine", "loc": 2.0, "scale": 3.0}],
+        },
+        factory=_tn_factory,
+        test_points=np.linspace(-4.0, 8.0, TEST_POINTS_DEFAULT).tolist(),
+        entropy_override=_tn_entropy_ref,
+    ))
+
     # ----- Multinomial -----
     # Multinomial test points must sum to total_count (no MC noise on the
     # event-axis sum). Pick 4 valid count vectors.
@@ -449,7 +487,10 @@ def generate_spec(spec: DistSpec, out_dir: Path) -> dict[str, Any]:
     if not spec.skip_entropy:
         try:
             with torch.no_grad():
-                ent = dist.entropy()
+                if spec.entropy_override is not None:
+                    ent = spec.entropy_override()
+                else:
+                    ent = dist.entropy()
             ent_np = ent.detach().cpu().numpy().astype(np.float32)
             # Most univariate cases yield a scalar; some multivariates yield
             # a [B]-shaped tensor. Always store as a tensor so the verifier

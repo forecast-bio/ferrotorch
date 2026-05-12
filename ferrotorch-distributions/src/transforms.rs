@@ -48,6 +48,31 @@ pub trait Transform<T: Float>: Send + Sync {
 
     /// Human-readable name.
     fn name(&self) -> &'static str;
+
+    /// Closed-form `E_X[log|det J_f(X)|]` when it is independent of `X`.
+    ///
+    /// Used by [`TransformedDistribution::entropy`] for the standard
+    /// change-of-variables entropy identity
+    /// `H(Y) = H(X) + E_X[log|det J_f(X)|]`. Returning `Some(c)` advertises
+    /// that the contribution is the constant `c` regardless of `X` — e.g.
+    /// affine transforms whose Jacobian is `log|scale|`. Returning `None`
+    /// (the default) means the contribution depends on `X` (or on the
+    /// dispatcher applying a special case such as [`ExpTransform`] paired
+    /// with the base mean).
+    fn constant_entropy_contribution(&self) -> Option<T> {
+        None
+    }
+
+    /// Whether this transform is an [`ExpTransform`].
+    ///
+    /// `ExpTransform` is the only `x`-dependent transform with a closed-form
+    /// entropy contribution: `log|det dy/dx| = x` so the contribution is
+    /// `E_X[X] = base.mean()`. The dispatcher in
+    /// [`TransformedDistribution::entropy`] uses this flag to apply that
+    /// special case instead of returning the generic "intractable" error.
+    fn is_exp_transform(&self) -> bool {
+        false
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +106,10 @@ impl<T: Float> Transform<T> for ExpTransform {
 
     fn name(&self) -> &'static str {
         "ExpTransform"
+    }
+
+    fn is_exp_transform(&self) -> bool {
+        true
     }
 }
 
@@ -156,6 +185,19 @@ impl<T: Float> Transform<T> for AffineTransform<T> {
 
     fn name(&self) -> &'static str {
         "AffineTransform"
+    }
+
+    fn constant_entropy_contribution(&self) -> Option<T> {
+        // log|d(loc + scale*x)/dx| = log|scale|, a scalar that does not
+        // depend on x. `scale == 0` would not be a valid bijection, so we
+        // treat the abs-then-ln branch as the only physical case.
+        let zero = T::from(0.0).unwrap();
+        let abs_scale = if self.scale >= zero {
+            self.scale
+        } else {
+            zero - self.scale
+        };
+        Some(abs_scale.ln())
     }
 }
 
@@ -401,6 +443,17 @@ impl<T: Float> Transform<T> for ComposeTransform<T> {
     fn name(&self) -> &'static str {
         "ComposeTransform"
     }
+
+    fn constant_entropy_contribution(&self) -> Option<T> {
+        // A composed chain is constant-Jacobian iff every link is. In that
+        // case the contributions sum: log|det J_compose| = sum_i log|det J_i|.
+        let mut acc = T::from(0.0).unwrap();
+        for t in &self.transforms {
+            let c = t.constant_entropy_contribution()?;
+            acc += c;
+        }
+        Some(acc)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -488,19 +541,99 @@ impl<T: Float> Distribution<T> for TransformedDistribution<T> {
     }
 
     fn entropy(&self) -> FerrotorchResult<Tensor<T>> {
-        // Entropy of a transformed distribution is generally not available
-        // in closed form. We could estimate it via sampling but that's not
-        // what PyTorch does either — it raises NotImplementedError for the
-        // general case. We return the base entropy as an approximation only
-        // when there are no transforms; otherwise error.
+        // Change-of-variables identity:
+        //   H(Y) = H(X) + E_X[log|det J_f(X)|]
+        // We accept three closed-form dispatches:
+        //
+        //   1. Empty transform list                       — H(Y) = H(X).
+        //   2. Every transform reports
+        //      `constant_entropy_contribution()`           — contributions sum
+        //      to a scalar `c` independent of X, and
+        //      H(Y) = H(X) + c (broadcast onto X's entropy shape).
+        //   3. A single [`ExpTransform`] with a base that
+        //      implements `mean()`                         — H(Y) = H(X)
+        //      + E[X] = H(X) + base.mean().
+        //
+        // Anything else (sigmoid, tanh, softplus, multi-Exp chains, Exp
+        // composed with non-trivial transforms, etc.) is not currently
+        // tractable in closed form and we surface a precise, structured
+        // error naming the offending transform(s) so the caller can either
+        // resort to Monte-Carlo or extend this dispatch.
+        let base_entropy = self.base.entropy()?;
         if self.transforms.is_empty() {
-            return self.base.entropy();
+            return Ok(base_entropy);
         }
-        Err(ferrotorch_core::error::FerrotorchError::InvalidArgument {
-            message: "entropy() is not implemented for TransformedDistribution \
-                      in the general case. Use sampling-based estimates instead."
-                .into(),
-        })
+
+        // Path 2 — all-constant Jacobian contributions sum to a scalar.
+        let all_constant: Option<T> = {
+            let mut acc = T::from(0.0).unwrap();
+            let mut ok = true;
+            for t in &self.transforms {
+                match t.constant_entropy_contribution() {
+                    Some(c) => acc += c,
+                    None => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if ok { Some(acc) } else { None }
+        };
+        if let Some(c) = all_constant {
+            // Broadcast the scalar onto base_entropy's shape and add.
+            let device = base_entropy.device();
+            let c_tensor = creation::full(base_entropy.shape(), c)?.to(device)?;
+            return add(&base_entropy, &c_tensor);
+        }
+
+        // Path 3 — a single Exp transform: contribution is E[X] = base.mean().
+        if self.transforms.len() == 1 && self.transforms[0].is_exp_transform() {
+            let mean = self.base.mean()?;
+            // base.mean() is shape-compatible with base.entropy() for the
+            // distributions we support (Normal et al. parameterised by
+            // loc/scale). If the base distribution does not implement mean
+            // it surfaces its own InvalidArgument here, which we propagate.
+            //
+            // mean may live on a different device than entropy (e.g. Normal
+            // returns `self.loc.clone()` while entropy materialises on
+            // scale.device()). Move mean onto entropy's device before adding.
+            let device = base_entropy.device();
+            let mean_on_device = if mean.device() == device {
+                mean
+            } else {
+                mean.to(device)?
+            };
+            return add(&base_entropy, &mean_on_device);
+        }
+
+        // Fall-through: enumerate the problematic transforms by name so the
+        // caller knows which link blocks the closed-form path.
+        let problematic: Vec<&'static str> = self
+            .transforms
+            .iter()
+            .filter(|t| t.constant_entropy_contribution().is_none() && !t.is_exp_transform())
+            .map(|t| t.name())
+            .collect();
+        let summary = if problematic.is_empty() {
+            // The list contains an Exp transform but is not exactly
+            // [Exp] — e.g. [Exp, Exp] or [Exp, Affine]. Multi-Exp /
+            // mixed-Exp chains require E[exp(...)] which is not constant
+            // in closed form for arbitrary bases.
+            "TransformedDistribution::entropy: chain contains ExpTransform but is not a \
+             single Exp — the contribution would require evaluating E_X[exp(...)] which \
+             has no closed form for the general base"
+                .to_string()
+        } else {
+            format!(
+                "TransformedDistribution::entropy: closed-form contribution is \
+                 intractable for transform(s) {problematic:?}. Supported transforms \
+                 are AffineTransform (and compositions thereof) plus a single \
+                 ExpTransform; everything else (SigmoidTransform, TanhTransform, \
+                 SoftplusTransform, ...) has no general analytic form. \
+                 Use Monte-Carlo estimation instead.",
+            )
+        };
+        Err(ferrotorch_core::error::FerrotorchError::InvalidArgument { message: summary })
     }
 }
 
@@ -877,13 +1010,155 @@ mod tests {
     }
 
     #[test]
-    fn test_transformed_distribution_entropy_errors() {
+    fn test_transformed_distribution_entropy_empty_chain_matches_base() {
+        // Empty chain → identity; entropy must equal the base distribution's
+        // entropy exactly.
+        use crate::Normal;
+        let loc = scalar(0.0f32).unwrap();
+        let scale = scalar(1.0f32).unwrap();
+        let base = Normal::new(loc.clone(), scale.clone()).unwrap();
+        let td: TransformedDistribution<f32> =
+            TransformedDistribution::new(Box::new(base), vec![]);
+        let base2 = Normal::new(loc, scale).unwrap();
+        let ent = td.entropy().unwrap().item().unwrap();
+        let base_ent = base2.entropy().unwrap().item().unwrap();
+        assert!(
+            (ent - base_ent).abs() < 1e-6,
+            "empty-chain entropy: td={ent} base={base_ent}",
+        );
+    }
+
+    #[test]
+    fn test_transformed_distribution_entropy_affine() {
+        // entropy(Normal(0,1) → affine(loc=2, scale=3)) =
+        //   entropy(Normal(0,1)) + log|3|
+        //   = entropy(Normal(2, 3))
         use crate::Normal;
         let loc = scalar(0.0f32).unwrap();
         let scale = scalar(1.0f32).unwrap();
         let base = Normal::new(loc, scale).unwrap();
+        let affine = AffineTransform::new(2.0f32, 3.0f32);
+        let td = TransformedDistribution::new(Box::new(base), vec![Box::new(affine)]);
+        let ent_td = td.entropy().unwrap().item().unwrap();
+
+        let loc2 = scalar(2.0f32).unwrap();
+        let scale2 = scalar(3.0f32).unwrap();
+        let direct = Normal::new(loc2, scale2).unwrap();
+        let ent_direct = direct.entropy().unwrap().item().unwrap();
+        assert!(
+            (ent_td - ent_direct).abs() < 1e-5,
+            "affine entropy: td={ent_td} direct={ent_direct}",
+        );
+    }
+
+    #[test]
+    fn test_transformed_distribution_entropy_affine_negative_scale() {
+        // Negative scale: the contribution is log|scale|, which equals
+        // log|scale| of the absolute value.
+        use crate::Normal;
+        let loc = scalar(0.0f32).unwrap();
+        let scale = scalar(1.0f32).unwrap();
+        let base = Normal::new(loc, scale).unwrap();
+        let affine = AffineTransform::new(0.0f32, -2.5f32);
+        let td = TransformedDistribution::new(Box::new(base), vec![Box::new(affine)]);
+        let ent_td = td.entropy().unwrap().item().unwrap();
+
+        // entropy(Normal(0,1)) = 0.5 + 0.5*ln(2*pi); + ln(2.5).
+        let half = 0.5f32;
+        let expected = half + half * (2.0f32 * std::f32::consts::PI).ln() + 2.5f32.ln();
+        assert!(
+            (ent_td - expected).abs() < 1e-5,
+            "affine-neg entropy: td={ent_td} expected={expected}",
+        );
+    }
+
+    #[test]
+    fn test_transformed_distribution_entropy_exp_matches_lognormal() {
+        // entropy(Normal(loc, scale) → exp) = entropy(LogNormal(loc, scale)) =
+        //   loc + 0.5 + ln(scale) + 0.5*ln(2*pi)
+        // (identical to the Normal entropy + base.mean() = entropy + loc).
+        use crate::{LogNormal, Normal};
+        let loc_v = 1.3f32;
+        let scale_v = 0.7f32;
+        let loc = scalar(loc_v).unwrap();
+        let scale = scalar(scale_v).unwrap();
+        let base = Normal::new(loc, scale).unwrap();
         let td = TransformedDistribution::new(Box::new(base), vec![Box::new(ExpTransform)]);
-        assert!(td.entropy().is_err());
+        let ent_td = td.entropy().unwrap().item().unwrap();
+
+        let loc2 = scalar(loc_v).unwrap();
+        let scale2 = scalar(scale_v).unwrap();
+        let direct = LogNormal::new(loc2, scale2).unwrap();
+        let ent_direct = direct.entropy().unwrap().item().unwrap();
+        assert!(
+            (ent_td - ent_direct).abs() < 1e-5,
+            "exp entropy: td={ent_td} lognormal={ent_direct}",
+        );
+    }
+
+    #[test]
+    fn test_transformed_distribution_entropy_compose_affine_chain() {
+        // Affine(0, 2) ∘ Affine(1, 3) is constant-Jacobian: log(2)+log(3).
+        use crate::Normal;
+        let loc = scalar(0.0f32).unwrap();
+        let scale = scalar(1.0f32).unwrap();
+        let base = Normal::new(loc, scale).unwrap();
+        let td = TransformedDistribution::new(
+            Box::new(base),
+            vec![
+                Box::new(AffineTransform::new(0.0f32, 2.0)),
+                Box::new(AffineTransform::new(1.0f32, 3.0)),
+            ],
+        );
+        let ent_td = td.entropy().unwrap().item().unwrap();
+        let half = 0.5f32;
+        let expected = half
+            + half * (2.0f32 * std::f32::consts::PI).ln()
+            + 2.0f32.ln()
+            + 3.0f32.ln();
+        assert!(
+            (ent_td - expected).abs() < 1e-5,
+            "affine-chain entropy: td={ent_td} expected={expected}",
+        );
+    }
+
+    #[test]
+    fn test_transformed_distribution_entropy_sigmoid_errors() {
+        // SigmoidTransform has no closed-form analytic contribution; the
+        // dispatcher must return an InvalidArgument naming Sigmoid.
+        use crate::Normal;
+        let loc = scalar(0.0f32).unwrap();
+        let scale = scalar(1.0f32).unwrap();
+        let base = Normal::new(loc, scale).unwrap();
+        let td = TransformedDistribution::new(Box::new(base), vec![Box::new(SigmoidTransform)]);
+        let err = td.entropy().unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("SigmoidTransform"),
+            "expected SigmoidTransform in error, got: {msg}",
+        );
+    }
+
+    #[test]
+    fn test_transformed_distribution_entropy_exp_then_affine_errors() {
+        // A chain with Exp AND another non-Affine link is *not* in our
+        // currently supported set (mixed chains with Exp require the chain
+        // to be exactly [Exp]). The dispatcher should surface a precise
+        // error referencing Exp's intractability in mixed chains.
+        use crate::Normal;
+        let loc = scalar(0.0f32).unwrap();
+        let scale = scalar(1.0f32).unwrap();
+        let base = Normal::new(loc, scale).unwrap();
+        let td = TransformedDistribution::new(
+            Box::new(base),
+            vec![Box::new(ExpTransform), Box::new(AffineTransform::new(0.0f32, 1.0))],
+        );
+        let err = td.entropy().unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("Exp"),
+            "expected Exp mention in mixed-Exp error, got: {msg}",
+        );
     }
 
     // -- f64 tests -----------------------------------------------------------

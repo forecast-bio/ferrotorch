@@ -52,6 +52,7 @@ use std::path::{Path, PathBuf};
 use ferrotorch_core::creation::{from_slice, scalar};
 use ferrotorch_core::tensor::Tensor;
 use ferrotorch_distributions::kl::kl_divergence;
+use ferrotorch_distributions::transforms::{AffineTransform, Transform, TransformedDistribution};
 use ferrotorch_distributions::{
     Bernoulli, Beta, Categorical, Cauchy, Dirichlet, Distribution, Exponential, Gamma, HalfNormal,
     Laplace, LogNormal, Multinomial, MultivariateNormal, Normal, Poisson, StudentT, Uniform,
@@ -356,6 +357,19 @@ fn dump_distribution(
             let dist = MultivariateNormal::from_covariance(loc, cov)
                 .map_err(|e| format!("MVN::from_covariance: {e:?}"))?;
             run_multivariate(&dist, &value()?, 1)
+        }
+
+        // ---------------- TransformedDistribution (#1109) -------------
+        // TransformedDistribution(Normal(0, 1), [AffineTransform(2, 3)]) —
+        // the entropy dispatch must surface the closed-form
+        // `base.entropy() + log|3|` (equal to entropy(Normal(2, 3))).
+        "transformed_normal_affine" => {
+            let base = Normal::new(scalar(0.0f32).unwrap(), scalar(1.0f32).unwrap())
+                .map_err(|e| format!("Normal::new: {e:?}"))?;
+            let affine = AffineTransform::new(2.0f32, 3.0f32);
+            let transforms: Vec<Box<dyn Transform<f32>>> = vec![Box::new(affine)];
+            let dist = TransformedDistribution::new(Box::new(base), transforms);
+            run_univariate(&dist, &value()?)
         }
 
         // ------------------------ Multinomial -------------------------

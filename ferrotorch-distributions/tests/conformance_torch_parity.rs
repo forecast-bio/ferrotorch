@@ -53,6 +53,7 @@ const EXPECTED_PASS_LINES: &[&str] = &[
     "dirichlet_k4: PASS",
     "mvn_3d: PASS",
     "multinomial_k3_n20: PASS",
+    "transformed_normal_affine: PASS",
     // 8 KL pairs
     "kl_normal_normal: PASS",
     "kl_bernoulli_bernoulli: PASS",
