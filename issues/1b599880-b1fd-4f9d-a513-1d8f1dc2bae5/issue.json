@@ -3,12 +3,13 @@
   "display_id": 1128,
   "title": "Pass 5.G.4: ferrotorch-jit autotune.rs O(inputs × values) cache key rebuild on every lookup",
   "description": "Pass 4 finding (umbrella #982) — ferrotorch-jit audit, PERF_OBVIOUS.\n\nsrc/autotune.rs:283-303 — On every `tune` call the cache key is rebuilt by walking topo+nodes+values for every input value (line 271-282 nested O(inputs × values) lookup, 84-95 op-sequence stringification). On a cache hit the entire fingerprint walk runs anyway before the lookup; the supposedly-cheap 'I've seen this' path still pays full key-build cost.\n\nAdjacent finding — codegen_ir.rs:524-545, 548-573, 576-601: every reduction lowering uses scalar acc accumulators via single LoopIR::Store at index 0. No vector/SIMD hint, no parallel-reduction tree even for large numel. Hot-path footgun for sum/mean/prod.\n\nAcceptance:\n- Cache the fingerprint on the Graph itself (lazy + invalidated on mutation)\n- Add tree-reduction LoopIR for reductions over numel > threshold\n- Benchmark: autotune cache hit should not re-walk the graph.",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "parent_uuid": "60feedba-482e-4c56-bb7a-236ea5a99b17",
   "created_by": "y4rr",
   "created_at": "2026-05-10T07:28:39.968371818Z",
-  "updated_at": "2026-05-10T07:28:41.149056972Z",
+  "updated_at": "2026-05-12T20:42:07.521622031Z",
+  "closed_at": "2026-05-12T20:42:07.521622031Z",
   "labels": [
     "audit,perf,jit"
   ]
