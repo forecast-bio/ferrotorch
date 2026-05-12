@@ -1,0 +1,10 @@
+{
+  "uuid": "5ecd288d-c97f-428c-a3ac-3d275ab43f77",
+  "issue_uuid": "53d8bacb-a602-4349-81d3-6058fd6c7048",
+  "author": "y4rr",
+  "content": "Observation (real bug surfaced): initial dry-run showed FAIL on llama3 (2 decoded strings off-by-one-space) and clip (every decoded string differs — </w> markers vs space-joins). Probed: this is NOT a rust bug. The python reference was using transformers.AutoTokenizer.decode which adds post-processing — for Llama 3 it sets clean_up_tokenization_spaces=True which strips spaces before punctuation; for CLIP transformers uses the slow CLIPTokenizer which manually strips </w> markers and inserts spaces. The fast tokenizers.Tokenizer.decode in Python (the SAME library code as rust tokenizers crate) matches rust exactly for all 5 families — proven by side-by-side decode comparison. Correct architectural fix: use tokenizers.Tokenizer as the reference for encode/decode (it is what rust wraps), and only use transformers.AutoTokenizer for apply_chat_template (which is a transformers concept, not a tokenizers concept; rust replicates it via minijinja).",
+  "created_at": "2026-05-12T15:39:59.412735245Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAWjQDrvXzoMIXfARSpS0fvHShvPJ5X1D8o0Uud3mQlCPj3UgrLX+SVsBTmVXebleHpopTWGhT8l8m7oRtGuraAg=="
+}
