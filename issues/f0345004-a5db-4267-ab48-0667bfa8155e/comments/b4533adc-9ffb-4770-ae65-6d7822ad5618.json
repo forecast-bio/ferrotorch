@@ -1,0 +1,10 @@
+{
+  "uuid": "b4533adc-9ffb-4770-ae65-6d7822ad5618",
+  "issue_uuid": "f0345004-a5db-4267-ab48-0667bfa8155e",
+  "author": "y4rr",
+  "content": "Surface audit: existing — gpu_conv2d_f32 (PTX im2col+cuBLAS+bias), gpu_matmul_f32, gpu_bmm_f32, gpu_softmax, gpu_silu (f32), gpu_broadcast_add, gpu_add, gpu_scale, gpu_transpose_2d. Missing — GroupNorm f32 (will add as new ferrotorch-gpu module), nearest 2x upsample (will add as new ferrotorch-gpu module). Plan: PTX kernels modeled after LAYERNORM_PTX shape; tests in their own modules; then GpuVaeDecoder mirroring CPU vae::Decoder with CudaBuffer<f32> weights.",
+  "created_at": "2026-05-12T06:59:48.074829737Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAG1V9ekPDj4/xdRBW/ZOowt4wr5z/NvJEZBH3+JhFhx0aTF4Z6GNxu65XmKO67uVH3YmRw4ZYASt+5XcV7YZwCw=="
+}
