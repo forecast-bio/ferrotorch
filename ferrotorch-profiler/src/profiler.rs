@@ -14,7 +14,14 @@ pub struct ProfileConfig {
     pub record_shapes: bool,
     /// Capture memory allocation/free events.
     pub record_memory: bool,
-    /// Capture call stacks (not yet implemented).
+    /// Capture call stacks for every recorded event.
+    ///
+    /// When `true`, each event's `stack_trace` is populated by
+    /// [`std::backtrace::Backtrace::capture`] (see
+    /// [`Profiler::maybe_capture_stack`]). The captured backtrace is
+    /// itself gated by the `RUST_BACKTRACE` environment variable — when
+    /// unset, `Backtrace::capture` returns a `Disabled` backtrace and the
+    /// overhead is just a few atomic loads.
     pub with_stack: bool,
 }
 

@@ -195,16 +195,77 @@ impl<T: Float> Transform<T> for Normalize<T> {
 }
 
 // ---------------------------------------------------------------------------
-// ToTensor — identity / placeholder transform
+// ToTensor — image → CHW `Tensor<f32>` in `[0, 1]`
 // ---------------------------------------------------------------------------
 
-/// Identity transform that returns the input unchanged.
+/// Convert an [`image::DynamicImage`] into a `Tensor<f32>` of shape
+/// `[C, H, W]` with pixel values normalised into `[0.0, 1.0]`.
 ///
-/// This is a placeholder for a future image-to-tensor conversion. In the
-/// current API everything is already a `Tensor`, so `ToTensor` is a no-op.
+/// Mirrors `torchvision.transforms.ToTensor`:
+///
+/// 1. The image is interpreted in HWC (interleaved) byte order.
+/// 2. Bytes are transposed to CHW.
+/// 3. `u8` pixel values are divided by `255.0` so the result lives in
+///    `[0.0, 1.0]`.
+///
+/// The current implementation always outputs **three channels** (RGB).
+/// Grayscale, RGBA, and 16-bit inputs are converted to RGB8 first via
+/// [`image::DynamicImage::to_rgb8`], discarding any alpha channel. Callers
+/// that need to preserve alpha should pre-convert and use a custom pipeline.
+///
+/// Use [`ToTensor::apply`] (the inherent method on `&image::DynamicImage`)
+/// for the real conversion. The [`Transform<T>`] trait impl is retained
+/// for back-compat with [`Compose`] pipelines that already operate on
+/// `Tensor<T>` and treats `ToTensor` as an identity pass-through there.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ToTensor;
 
+impl ToTensor {
+    /// Convert a [`image::DynamicImage`] into a `[3, H, W]` `Tensor<f32>`
+    /// with values in `[0.0, 1.0]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] if the image is
+    /// zero-sized in either spatial dimension, or
+    /// [`FerrotorchError`] propagated from tensor construction.
+    pub fn apply(&self, image: &image::DynamicImage) -> FerrotorchResult<Tensor<f32>> {
+        const C: usize = 3;
+
+        let rgb = image.to_rgb8();
+        let (w, h) = rgb.dimensions();
+        if w == 0 || h == 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("ToTensor: image has zero-sized dimension ({w}x{h})"),
+            });
+        }
+        let w = w as usize;
+        let h = h as usize;
+
+        // Transpose HWC -> CHW while normalising to [0, 1]. `image::RgbImage`
+        // stores pixels row-major in HWC order with interleaved RGB bytes.
+        let raw = rgb.as_raw();
+        debug_assert_eq!(raw.len(), C * h * w);
+        let mut out = vec![0.0f32; C * h * w];
+        let scale = 1.0f32 / 255.0;
+        for row in 0..h {
+            for col in 0..w {
+                let src_base = (row * w + col) * C;
+                for ch in 0..C {
+                    let dst_idx = ch * h * w + row * w + col;
+                    out[dst_idx] = <f32 as From<u8>>::from(raw[src_base + ch]) * scale;
+                }
+            }
+        }
+
+        from_vec(out, &[C, h, w])
+    }
+}
+
+// `Transform<T>` impl: kept as an identity pass-through so that existing
+// `Compose<T>` pipelines that include `Box::new(ToTensor)` between two
+// tensor-valued stages continue to type-check. The real image→tensor
+// conversion is the inherent [`ToTensor::apply`] above.
 impl<T: Float> Transform<T> for ToTensor {
     fn apply(&self, input: Tensor<T>) -> FerrotorchResult<Tensor<T>> {
         Ok(input)
@@ -513,11 +574,71 @@ mod tests {
 
     #[test]
     fn test_to_tensor_identity() {
+        // The `Transform<T>` trait impl on `ToTensor` stays an identity
+        // pass-through for back-compat with `Compose<T>` pipelines. The
+        // real image→tensor conversion lives on the inherent `apply`
+        // method exercised by the test below.
         let t =
             Tensor::<f32>::from_storage(TensorStorage::cpu(vec![1.0, 2.0, 3.0]), vec![3], false)
                 .unwrap();
-        let out = ToTensor.apply(t.clone()).unwrap();
+        let out = <ToTensor as Transform<f32>>::apply(&ToTensor, t.clone()).unwrap();
         assert!(out.is_same(&t));
+    }
+
+    #[test]
+    fn to_tensor_converts_2x2_rgb_image_to_chw_normalized() {
+        // Solid-red 2x2 image. After CHW transpose + /255 normalisation,
+        // the R channel should be all-1.0 and G/B should be all-0.0.
+        let img = image::ImageBuffer::from_pixel(2, 2, image::Rgb([255u8, 0, 0]));
+        let dynamic = image::DynamicImage::ImageRgb8(img);
+        let tensor = ToTensor.apply(&dynamic).unwrap();
+        assert_eq!(tensor.shape(), &[3, 2, 2]);
+        let data = tensor.data().unwrap();
+        // R channel = 1.0
+        for &v in &data[0..4] {
+            assert!((v - 1.0).abs() < 1e-6);
+        }
+        // G channel = 0.0
+        for &v in &data[4..8] {
+            assert!(v.abs() < 1e-6);
+        }
+        // B channel = 0.0
+        for &v in &data[8..12] {
+            assert!(v.abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn to_tensor_rejects_zero_sized_image() {
+        let img: image::RgbImage = image::ImageBuffer::new(0, 0);
+        let dynamic = image::DynamicImage::ImageRgb8(img);
+        let err = ToTensor.apply(&dynamic).unwrap_err();
+        assert!(matches!(err, FerrotorchError::InvalidArgument { .. }));
+    }
+
+    #[test]
+    fn to_tensor_per_pixel_distinct_values() {
+        // Distinct per-pixel RGB so the CHW transpose is observable.
+        // 2x1 image: pixel (0,0) = (10, 20, 30), pixel (1,0) = (40, 50, 60).
+        // (width=2, height=1)
+        let mut img = image::RgbImage::new(2, 1);
+        img.put_pixel(0, 0, image::Rgb([10u8, 20, 30]));
+        img.put_pixel(1, 0, image::Rgb([40u8, 50, 60]));
+        let dynamic = image::DynamicImage::ImageRgb8(img);
+        let tensor = ToTensor.apply(&dynamic).unwrap();
+        // Shape [C=3, H=1, W=2].
+        assert_eq!(tensor.shape(), &[3, 1, 2]);
+        let data = tensor.data().unwrap();
+        let s = 1.0 / 255.0;
+        // R row: [10, 40] * s
+        assert!((data[0] - 10.0 * s).abs() < 1e-6);
+        assert!((data[1] - 40.0 * s).abs() < 1e-6);
+        // G row: [20, 50] * s
+        assert!((data[2] - 20.0 * s).abs() < 1e-6);
+        assert!((data[3] - 50.0 * s).abs() < 1e-6);
+        // B row: [30, 60] * s
+        assert!((data[4] - 30.0 * s).abs() < 1e-6);
+        assert!((data[5] - 60.0 * s).abs() < 1e-6);
     }
 
     // ----- RandomHorizontalFlip -----

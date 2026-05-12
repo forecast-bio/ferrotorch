@@ -15,7 +15,7 @@
 //! by the HF Transformers `auto_gptq` / `autoawq` libraries.
 //!
 //! HQQ unpacking is more involved (per-row half-precision scales + an
-//! offset table) and is deferred — see follow-up issue.
+//! offset table) and is deferred — tracked at #1172.
 
 use ferrotorch_core::{FerrotorchError, FerrotorchResult};
 

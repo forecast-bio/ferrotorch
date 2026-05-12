@@ -671,12 +671,14 @@ fn normalize_length_mismatch_err() {
 // ToTensor
 // ---------------------------------------------------------------------------
 
-/// `ToTensor` is the identity transform.
+/// `ToTensor` is the identity transform under the `Transform<T>` trait
+/// (the inherent `ToTensor::apply` is the image→tensor path; pre-#1113
+/// `Compose<T>` pipelines see the identity path).
 #[test]
 fn to_tensor_identity() {
     let data = vec![1.0_f32, 2.0, 3.0];
     let t = t32(&data, &[3]);
-    let out = ToTensor.apply(t).unwrap();
+    let out = <ToTensor as Transform<f32>>::apply(&ToTensor, t).unwrap();
     assert_eq!(out.data_vec().unwrap(), data, "ToTensor should be identity");
 }
 
