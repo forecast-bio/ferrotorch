@@ -2,11 +2,12 @@
   "uuid": "fa381f1e-9526-4336-a192-06173f0c9206",
   "display_id": 1169,
   "title": "ferrotorch-serialize format parity (.pth/safetensors/gguf/onnx)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-12T15:48:44.769979331Z",
-  "updated_at": "2026-05-12T15:48:46.303886623Z",
+  "updated_at": "2026-05-12T16:25:23.176346034Z",
+  "closed_at": "2026-05-12T16:25:23.176346034Z",
   "labels": [
     "real-artifact"
   ]
