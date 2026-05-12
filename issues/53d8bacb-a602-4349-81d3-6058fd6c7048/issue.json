@@ -2,11 +2,12 @@
   "uuid": "53d8bacb-a602-4349-81d3-6058fd6c7048",
   "display_id": 1168,
   "title": "ferrotorch-tokenize parity vs HF tokenizers",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-12T15:33:32.446345918Z",
-  "updated_at": "2026-05-12T15:33:33.938925090Z",
+  "updated_at": "2026-05-12T15:46:16.249925792Z",
+  "closed_at": "2026-05-12T15:46:16.249925792Z",
   "labels": [
     "real-artifact"
   ]
