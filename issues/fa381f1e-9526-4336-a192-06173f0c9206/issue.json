@@ -6,5 +6,8 @@
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-12T15:48:44.769979331Z",
-  "updated_at": "2026-05-12T15:48:44.769979331Z"
+  "updated_at": "2026-05-12T15:48:46.303886623Z",
+  "labels": [
+    "real-artifact"
+  ]
 }
