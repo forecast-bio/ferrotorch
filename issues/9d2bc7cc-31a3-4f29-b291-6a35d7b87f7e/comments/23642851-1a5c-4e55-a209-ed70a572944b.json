@@ -1,0 +1,10 @@
+{
+  "uuid": "23642851-1a5c-4e55-a209-ed70a572944b",
+  "issue_uuid": "9d2bc7cc-31a3-4f29-b291-6a35d7b87f7e",
+  "author": "y4rr",
+  "content": "Plan: Build real-artifact parity harness for ferrotorch-distributions vs torch.distributions per Phase G.1 spec. (1) Inventory public surface, (2) Build scripts/pin_pretrained_distributions_fixtures.py to generate fixtures with torch.manual_seed(42), N=10000 samples, log_prob+entropy at fixed test points, KL for canonical pairs. (3) Build ferrotorch-distributions/examples/distributions_dump.rs to emit moments + log_prob + entropy. (4) Harness scripts/verify_distributions_inference.py with per-metric tolerances (sample mean<=0.05, var<=0.1, log_prob<=1e-4, entropy<=1e-4, KL<=1e-4). (5) tests/conformance_torch_parity.rs ignored-gated wrapper. (6) Upload bundle to ferrotorch/distributions-parity-v1 and pin in registry. Use moment-based comparison (no PRNG byte-match). Probe-then-fix any real bugs surfaced.",
+  "created_at": "2026-05-12T15:15:26.687629931Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA1ZqlGY6FEh8CX+8yeUGzVyGuuH5qLW3xSFFUhXV30jidvh1snzR3Bjqr2/mUmu4TjxWpro11DJ+60LsA1x+1DQ=="
+}
