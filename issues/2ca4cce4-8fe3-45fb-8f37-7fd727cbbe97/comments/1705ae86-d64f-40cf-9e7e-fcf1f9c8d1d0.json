@@ -1,0 +1,10 @@
+{
+  "uuid": "1705ae86-d64f-40cf-9e7e-fcf1f9c8d1d0",
+  "issue_uuid": "2ca4cce4-8fe3-45fb-8f37-7fd727cbbe97",
+  "author": "y4rr",
+  "content": "Result: 3 silent-fallback findings closed.\n\nFiles changed:\n- ferrotorch-jit/src/interpreter.rs: split walk into interpret_collect_values + extract_outputs helpers; added pub fn interpret_multi_with_captures.\n- ferrotorch-jit/src/module.rs: AotCompiledModule::forward_with_ctx now uses interpret_multi_with_captures; added pub fn saved_tensors() accessor. Removed the 'For now, save the inputs themselves' lie.\n- ferrotorch-jit/src/graph_break.rs: GraphSegment::Eager closure no longer captures and replays trace-time output_tensor; returns Err(JitError::UnsupportedOp) naming the op.\n- ferrotorch-jit/src/codegen.rs: new pub enum InductorCompileStatus; new pub fn InductorBackend::compile_with_status; Codegen::compile no longer silently delegates to InterpreterBackend (returns Err pointing to compile_with_status).\n- ferrotorch-jit/src/lib.rs: re-exported InductorCompileStatus and interpret_multi_with_captures.\n\nVerification:\n- cargo test -p ferrotorch-jit --lib: 316 passed; 0 failed.\n- cargo test -p ferrotorch-jit (all targets): 316 + 14 + 62 + 32 + 32 + 89 + 3 = 548 passed, 0 failed.\n- cargo clippy -p ferrotorch-jit --all-targets -- -D warnings: clean.\n- cargo build --workspace: clean (no downstream crate breakage).\n\nZero blanket #[allow], zero follow-up issues, zero remaining silent fallbacks.",
+  "created_at": "2026-05-12T17:44:19.963678060Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAIb+CKz94yGGF+3D042jrveK6ySaOO9ZsRswrv+VYMOxjTb1A8TmXNZeaNUt8rX72GhAyHa5e6kdIXx3ReyMZAw=="
+}
