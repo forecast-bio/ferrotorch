@@ -2,11 +2,12 @@
   "uuid": "773b4e9f-5144-414b-9d87-7e6db697f169",
   "display_id": 1158,
   "title": "PPO CartPole policy real-artifact harness vs stable-baselines3",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-11T23:53:30.115194135Z",
-  "updated_at": "2026-05-11T23:53:31.552460808Z",
+  "updated_at": "2026-05-12T00:08:35.672341793Z",
+  "closed_at": "2026-05-12T00:08:35.672341793Z",
   "labels": [
     "real-artifact"
   ]
