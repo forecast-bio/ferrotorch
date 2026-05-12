@@ -7,6 +7,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+
+### Fixed
+
+### Changed
+
+## [0.5.5] - 2026-05-12
+
+### Release notes
+
+Workspace bumped from 0.5.1 → 0.5.5. This release lands six new
+crates in publish-ready state with READMEs and `[workspace.package]`
+metadata inheritance:
+
+- `ferrotorch-bert` (#1148) — BERT family + sentence-transformers MiniLM
+- `ferrotorch-whisper` (#1149) — Whisper-tiny audio encoder
+- `ferrotorch-diffusion` (#1150-#1166) — SD-1.5 (CLIP + UNet + VAE + DDIM + pipeline) with CUDA paths
+- `ferrotorch-graph` (#1157) — GCN on Cora citation dataset
+- `ferrotorch-rl` (#1158) — PPO `MlpPolicy` (sb3 CartPole-v1)
+- `ferrotorch-grammar` (#1120) — constrained-decoding (JSON-schema → token mask) extracted from `ferrotorch-llama`
+
+All six pass `cargo publish --dry-run`. Workspace `cargo build`,
+`cargo test --lib`, and `cargo clippy --all-targets -- -D warnings`
+remain clean at 0.5.5 (#1173).
+
+### Added
 - ferrotorch-distributed: native-Rust UCC backend routing CPU tensors via gloo_native and GPU tensors via NCCL fast-path (no UCC C library dep). Features: `ucc-native` (CPU only) and `ucc-native-gpu` (CPU + GPU via NCCL) (#1134).
 - ferrotorch-distributed: native-Rust MPI-subset backend (`MpiBackend`) that delegates to the `gloo_native` primitives — ring allreduce / tree broadcast / ring barrier / full-mesh send-recv. Gated behind the new `mpi-native` cargo feature (which forces `gloo-backend` on, since the actual transport / collective code lives in `gloo_native::`); the historical `mpi-backend` feature name is retained as a source-compat alias for `mpi-native`. The MPI surface PyTorch's `init_process_group(backend="mpi")` actually drives (`MPI_Allreduce`, `MPI_Bcast`, `MPI_Barrier`, `MPI_Send`, `MPI_Recv`) maps 1:1 to those primitives, so no algorithm code is duplicated. New `MpiBackend::from_env` resolves rendezvous rank/world-size in the order `OMPI_COMM_WORLD_RANK` + `OMPI_COMM_WORLD_SIZE` (Open MPI `mpirun`) → `PMI_RANK` + `PMI_SIZE` (MPICH / Hydra / SLURM PMI) → `RANK` + `WORLD_SIZE` (PyTorch fallback), with `MASTER_ADDR` / `MASTER_PORT` for the native TCP rendezvous endpoint (MPI launchers do not standardise one). Without the feature, the backend continues to return `BackendUnavailable { backend: "mpi" }` for source-compat with the original #459 skeleton contract. No C/C++ FFI: no `mpicc`, no `libmpi.so`, no `mpi-sys` — pure-Rust replacement for the original "wait on Open MPI / MPICH C ABI" plan (#1133). Three new feature-gated unit tests exercise the real wire path: 2-rank in-process MPI allreduce over real TCP, 3-rank broadcast + barrier, and the env-var rendezvous priority order (Open MPI > PMI > PyTorch). `is_mpi_available_matches_fixture` conformance test gains the symmetric cascade-skip for the "fixture false, ferrotorch true" direction (same pattern #1132 added for gloo). Test counts: `cargo test -p ferrotorch-distributed --lib` 136 unchanged (default features); `cargo test -p ferrotorch-distributed --lib --features=mpi-native` 159 passed / 0 failed (was 156 before mpi-native — the 23 additional tests are the 20 `gloo_native::*` tests pulled in by the feature dep + 3 new `mpi_backend::tests::mpi_native_*` tests). `cargo test -p ferrotorch-distributed --tests --features=mpi-native` 159 + 61 + 1 = 221 passed / 0 failed. `cargo build -p ferrotorch-distributed`, `cargo build -p ferrotorch-distributed --features=mpi-native`, `cargo build -p ferrotorch-distributed --features=mpi-backend` clean. `cargo clippy -p ferrotorch-distributed --all-targets -- -D warnings`, `cargo clippy -p ferrotorch-distributed --features=mpi-native --all-targets -- -D warnings`, `cargo clippy -p ferrotorch-distributed --features=mpi-backend --all-targets -- -D warnings` clean (#1133).
 - ferrotorch-distributed: native-Rust gloo backend with TCP-based ring allreduce/broadcast/barrier — no C/C++ deps. Gated behind `gloo-native` feature. Without the feature, the gloo backend still returns BackendUnavailable for API stability (#1132).
