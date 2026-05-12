@@ -2789,6 +2789,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferrotorch-rl"
+version = "0.5.1"
+dependencies = [
+ "ferrotorch-core",
+ "ferrotorch-hub",
+ "ferrotorch-nn",
+ "ferrotorch-serialize",
+ "num-traits",
+ "safetensors",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "ferrotorch-serialize"
 version = "0.5.1"
 dependencies = [

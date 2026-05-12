@@ -1,0 +1,32 @@
+[package]
+name = "ferrotorch-rl"
+description = "Reinforcement-learning policy composition for ferrotorch (Phase D.2: PPO MlpPolicy / sb3 CartPole)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[features]
+default = []
+
+[dependencies]
+ferrotorch-core = { workspace = true }
+ferrotorch-nn = { workspace = true }
+ferrotorch-serialize = { workspace = true }
+ferrotorch-hub = { workspace = true }
+num-traits = { workspace = true }
+safetensors = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[example]]
+name = "ppo_policy_dump"
+path = "examples/ppo_policy_dump.rs"

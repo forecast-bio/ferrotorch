@@ -594,6 +594,36 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::SafeTensors,
         num_parameters: 23_063,
     },
+    // #1158: ppo-cartpole-v1 (sb3/ppo-CartPole-v1, mirrored byte-for-byte
+    // from the canonical sb3 zoo zip): first reinforcement-learning policy
+    // pinned to ferrotorch (Phase D.2). ActorCriticPolicy with
+    // FlattenExtractor (identity on 1-D obs), two separate Tanh-MLP trunks
+    // (`mlp_extractor.policy_net` and `mlp_extractor.value_net`, each
+    // Linear(4 -> 64) -> Tanh -> Linear(64 -> 64) -> Tanh, no shared MLP
+    // weights — only the FlattenExtractor is "shared"), and discrete
+    // Categorical action head (`action_net: Linear(64 -> 2)`) + scalar
+    // value head (`value_net: Linear(64 -> 1)`). 9_155 trainable f32
+    // parameters total. Apache-2.0 (inherited from stable-baselines3).
+    // No `log_std` parameter — discrete CartPole-v1 uses Categorical not
+    // DiagGaussian. Mirrored byte-for-byte from upstream — ferrotorch-rl's
+    // `MlpPolicy::named_parameters` returns exactly the sb3 key layout so
+    // the pin needs no key remap. The pin script verifies every upstream
+    // key + shape against the expected 12-key set and refuses to upload
+    // any architecture variant outside the discrete-action MlpPolicy
+    // alphabet. The mirror also ships
+    // `_value_parity_{obs,action_logits,value}.bin` so the
+    // `scripts/verify_rl_inference.py` harness (and the
+    // `conformance_ppo_cartpole` cargo test) can compare ferrotorch's
+    // forward pass against a frozen `stable_baselines3==2.8.0` reference
+    // without re-running the upstream policy in CI.
+    ModelInfo {
+        name: "ppo-cartpole-v1",
+        description: "PPO MlpPolicy for CartPole-v1 (sb3/ppo-CartPole-v1): 9.2k-param ActorCriticPolicy (4 -> 64 -> 64 Tanh trunks + Categorical action head + scalar value head), Apache 2.0, real-artifact baseline for RL policy parity vs stable_baselines3 (#1158).",
+        weights_url: "https://huggingface.co/ferrotorch/ppo-cartpole-v1/resolve/main/model.safetensors",
+        weights_sha256: "89c360d918f0e0582761cb8c0ecb9f2ed48606cd839ac5765d84a6df6b4d3769",
+        format: WeightsFormat::SafeTensors,
+        num_parameters: 9_155,
+    },
 ];
 
 /// List all available pretrained models.
