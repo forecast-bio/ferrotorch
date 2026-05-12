@@ -15,6 +15,7 @@ use ferrotorch_nn::parameter::Parameter;
 
 use crate::attention::LlamaAttention;
 use crate::config::LlamaConfig;
+use crate::kv_cache::LayerKvCache;
 use crate::mlp::LlamaMLP;
 
 /// One decoder layer: RMSNorm → attention → residual → RMSNorm → MLP → residual.
@@ -48,6 +49,41 @@ impl<T: Float> LlamaDecoderLayer<T> {
             mlp: LlamaMLP::new(cfg)?,
             training: false,
         })
+    }
+
+    /// Incremental forward pass: applies the layer to a single new
+    /// token `[1, 1, hidden]`, attending against the cached K/V from
+    /// previous positions. Returns the updated hidden state and the
+    /// new per-layer K/V cache.
+    ///
+    /// # Errors
+    ///
+    /// Forwards whatever the inner attention / MLP / RMSNorm /
+    /// residual-add paths return.
+    pub fn forward_with_cache(
+        &self,
+        input: &Tensor<T>,
+        cache: Option<&LayerKvCache<T>>,
+        seq_offset: usize,
+    ) -> FerrotorchResult<(Tensor<T>, LayerKvCache<T>)> {
+        let shape = input.shape();
+        if shape.len() != 3 || shape[0] != 1 || shape[1] != 1 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "LlamaDecoderLayer::forward_with_cache expects [1, 1, hidden] input, \
+                     got {shape:?}"
+                ),
+            });
+        }
+        // Attention sub-block with KV cache.
+        let h = self.input_layernorm.forward(input)?;
+        let (attn_out, new_cache) = self.self_attn.forward_with_cache(&h, cache, seq_offset)?;
+        let x = add(input, &attn_out)?;
+        // MLP sub-block — same as standard forward.
+        let h2 = self.post_attention_layernorm.forward(&x)?;
+        let mlp_out = self.mlp.forward(&h2)?;
+        let out = add(&x, &mlp_out)?;
+        Ok((out, new_cache))
     }
 }
 

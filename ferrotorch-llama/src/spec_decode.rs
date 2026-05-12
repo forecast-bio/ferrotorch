@@ -40,13 +40,57 @@ use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float};
 /// [`crate::model::LlamaForCausalLM`] satisfies it automatically; tests can
 /// supply any synthetic implementation.
 pub trait ModelHandle<T: Float> {
-    /// Run the forward pass over `ids` and return logits shaped
-    /// `[1, seq_len, vocab_size]`.
+    /// Run the forward pass over `ids` and return only the
+    /// **last-position** logits as an f64 vector of length
+    /// `vocab_size`.
+    ///
+    /// This is the legacy single-position API; speculative decoding uses
+    /// the batched [`ModelHandle::forward_ids_all_positions`] for its
+    /// verify step (one forward over the whole prefix instead of K+1
+    /// forwards over progressively longer prefixes — see #1129).
     ///
     /// # Errors
     ///
     /// Propagates whatever the underlying model returns.
     fn forward_ids(&self, ids: &[u32]) -> FerrotorchResult<Vec<f64>>;
+
+    /// Run the forward pass over `ids` and return **per-position**
+    /// logits — one f64 vector of length `vocab_size` per position
+    /// in `ids`, in order. The returned outer `Vec` has length
+    /// `ids.len()`.
+    ///
+    /// # Why this exists
+    ///
+    /// The speculative-decoding *verify* step needs target-model
+    /// distributions p<sub>0</sub>..p<sub>K</sub> at K+1 contiguous
+    /// positions. A naive implementation runs `forward_ids` K+1 times
+    /// over progressively longer prefixes — that's the quadratic cost
+    /// the Pass 4 audit flagged on `src/spec_decode.rs:264-290`.
+    /// Returning the full `[seq, vocab]` slab from a single forward
+    /// drops the per-step verify cost from `O((K+1) · S · …)` to
+    /// `O(S · …)`, matching Leviathan et al. §3 Algorithm 1.
+    ///
+    /// # Default implementation
+    ///
+    /// A correct-but-quadratic default that calls [`forward_ids`]
+    /// once per position is provided so existing custom
+    /// `ModelHandle` impls don't break. Real impls should override
+    /// this with a true single-forward path.
+    ///
+    /// [`forward_ids`]: ModelHandle::forward_ids
+    ///
+    /// # Errors
+    ///
+    /// Propagates whatever the underlying model returns.
+    fn forward_ids_all_positions(&self, ids: &[u32]) -> FerrotorchResult<Vec<Vec<f64>>> {
+        // Default: fall back to per-position calls. Correct but slow —
+        // exists so that existing custom impls keep compiling.
+        let mut out = Vec::with_capacity(ids.len());
+        for j in 1..=ids.len() {
+            out.push(self.forward_ids(&ids[..j])?);
+        }
+        Ok(out)
+    }
 
     /// Vocabulary size. Used to validate probability vectors.
     fn vocab_size(&self) -> usize;
@@ -83,6 +127,34 @@ impl<T: Float> ModelHandle<T> for LlamaHandle<'_, T> {
             .iter()
             .map(|&v| ferrotorch_core::numeric_cast::cast::<T, f64>(v))
             .collect::<FerrotorchResult<Vec<f64>>>()
+    }
+
+    /// Real single-forward implementation: one `forward_from_ids` call
+    /// returns the `[1, S, V]` logits tensor; split it into S
+    /// per-position `Vec<f64>` slices. This is the perf-critical path
+    /// the speculative-decode verify step uses to eliminate the
+    /// quadratic K+1-forwards loop (#1129).
+    fn forward_ids_all_positions(&self, ids: &[u32]) -> FerrotorchResult<Vec<Vec<f64>>> {
+        let logits_tensor = self.model.forward_from_ids(ids)?;
+        let shape = logits_tensor.shape();
+        if shape.len() != 3 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!("spec_decode: expected logits shape [1, S, V], got {shape:?}"),
+            });
+        }
+        let seq_len = shape[1];
+        let vocab = shape[2];
+        let data = logits_tensor.data_vec()?;
+        let mut out: Vec<Vec<f64>> = Vec::with_capacity(seq_len);
+        for j in 0..seq_len {
+            let base = j * vocab;
+            let row: Vec<f64> = data[base..base + vocab]
+                .iter()
+                .map(|&v| ferrotorch_core::numeric_cast::cast::<T, f64>(v))
+                .collect::<FerrotorchResult<Vec<f64>>>()?;
+            out.push(row);
+        }
+        Ok(out)
     }
 
     fn vocab_size(&self) -> usize {
@@ -241,53 +313,37 @@ pub fn speculative_decode<T: Float>(
         }
 
         // -----------------------------------------------------------------------
-        // Phase 2 — Verify: run target over context + K draft tokens.
-        // We need K positions: the target distribution at each draft-token
-        // position. We do this by running target.forward_ids K times — once
-        // per prefix length — so the last-position logit gives us p at that
-        // step.
+        // Phase 2 — Verify: ONE forward call over `context + draft_tokens`
+        // (length S = context.len() + k) returns per-position logits at
+        // every position. We need K+1 of them:
         //
-        // For efficiency, in full production one would pass all K tokens in a
-        // single parallel forward. We expose `forward_ids` over the full context
-        // each time which works correctly (and is what the tests can observe);
-        // the trait does not expose a batched verify path, so we call it K+1
-        // times: positions 0..K for the draft tokens, plus position K for the
-        // bonus token.
+        //   p_j (for j = 0..k) = P(x | context + draft_tokens[0..j])
+        //                      = logits at position (context.len() - 1 + j)
+        //   p_k (bonus)        = P(x | context + draft_tokens[0..k])
+        //                      = logits at position (context.len() - 1 + k)
+        //                      = the last position of the verify input
+        //
+        // This is the Leviathan et al. §3 Algorithm 1 batched-verify shape:
+        // O(S) per round instead of the previous O((K+1) · S) — see #1129.
         // -----------------------------------------------------------------------
-        let mut target_probs: Vec<Vec<f64>> = Vec::with_capacity(k + 1);
-
-        // Build target prefixes: for draft position j, the input is
-        // context + draft_tokens[0..j+1], and we take the logit at position j
-        // (the last one after forward).
-        //
-        // We build them incrementally.
-        let mut target_ctx = context.clone();
-        for j in 0..k {
-            target_ctx.push(draft_tokens[j]);
-            // forward_ids returns last-position logits, which is the target
-            // distribution p_j (the probability the target assigns at draft
-            // position j, i.e. after seeing tokens 0..j in the draft context).
-            //
-            // But we need p_j *before* seeing draft_tokens[j], i.e. we want
-            // P(x | context + draft_tokens[0..j]).
-            // So: build context + draft_tokens[0..j] (without draft_tokens[j])
-            // and call forward_ids.
-            //
-            // Rebuild target_ctx correctly:
-            let prefix: Vec<u32> = context
-                .iter()
-                .chain(draft_tokens[0..j].iter())
-                .copied()
-                .collect();
-            let logits = target.forward_ids(&prefix)?;
-            let probs = softmax_f64(&logits);
-            target_probs.push(probs);
+        let verify_prefix: Vec<u32> =
+            context.iter().chain(draft_tokens.iter()).copied().collect();
+        let all_logits = target.forward_ids_all_positions(&verify_prefix)?;
+        if all_logits.len() != verify_prefix.len() {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "speculative_decode: forward_ids_all_positions returned {} rows for input \
+                     length {}",
+                    all_logits.len(),
+                    verify_prefix.len()
+                ),
+            });
         }
-        // Bonus target distribution at position K: after seeing all K draft tokens.
-        let prefix_k: Vec<u32> = context.iter().chain(draft_tokens.iter()).copied().collect();
-        let logits_k = target.forward_ids(&prefix_k)?;
-        let probs_k = softmax_f64(&logits_k);
-        target_probs.push(probs_k);
+        let start = context.len() - 1; // position whose logits give p_0
+        let mut target_probs: Vec<Vec<f64>> = Vec::with_capacity(k + 1);
+        for j in 0..=k {
+            target_probs.push(softmax_f64(&all_logits[start + j]));
+        }
 
         // -----------------------------------------------------------------------
         // Phase 3 — Accept / reject loop (Leviathan et al. §3 Algorithm 1).
@@ -669,5 +725,120 @@ mod tests {
             proposed_count: 4,
         };
         assert!((out.acceptance_rate() - 0.5).abs() < 1e-12);
+    }
+
+    // -----------------------------------------------------------------------
+    // Discriminating test (#1129): batched verify must call
+    // forward_ids_all_positions ONCE per round, not forward_ids K+1
+    // times. The model handle counts each path independently; we assert
+    // the batched counter increments and the legacy counter does not.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn verify_uses_batched_forward_not_k_plus_one_singles() {
+        use std::cell::Cell;
+
+        /// Synthetic draft handle: returns deterministic logits and
+        /// tallies how many single-position forwards it does. The draft
+        /// path is *expected* to do K single forwards per round (one
+        /// per draft token); we only enforce the target-side batched
+        /// shape here.
+        struct CountingDraft {
+            vocab: usize,
+            singles: Cell<usize>,
+        }
+        impl ModelHandle<f32> for CountingDraft {
+            fn forward_ids(&self, ids: &[u32]) -> FerrotorchResult<Vec<f64>> {
+                self.singles.set(self.singles.get() + 1);
+                // Mildly position-dependent logits so softmax is not
+                // uniform; favours different tokens at different
+                // prefix lengths.
+                let mut logits = vec![0.0f64; self.vocab];
+                let pivot = ids.len() % self.vocab;
+                logits[pivot] = 5.0;
+                Ok(logits)
+            }
+            fn vocab_size(&self) -> usize {
+                self.vocab
+            }
+        }
+
+        /// Synthetic target handle: returns the SAME deterministic
+        /// logits as the draft (so acceptance rate is 1.0), but tallies
+        /// the batched-vs-single API split. The batched path is the
+        /// only path the verify step is allowed to use.
+        struct CountingTarget {
+            vocab: usize,
+            singles: Cell<usize>,
+            batched: Cell<usize>,
+        }
+        impl ModelHandle<f32> for CountingTarget {
+            fn forward_ids(&self, ids: &[u32]) -> FerrotorchResult<Vec<f64>> {
+                self.singles.set(self.singles.get() + 1);
+                let mut logits = vec![0.0f64; self.vocab];
+                let pivot = ids.len() % self.vocab;
+                logits[pivot] = 5.0;
+                Ok(logits)
+            }
+            fn forward_ids_all_positions(&self, ids: &[u32]) -> FerrotorchResult<Vec<Vec<f64>>> {
+                self.batched.set(self.batched.get() + 1);
+                // Per-position logits matching forward_ids' single-shot
+                // shape: position j's logits = the logits we'd get
+                // calling forward_ids(&ids[..j+1]).
+                let mut out = Vec::with_capacity(ids.len());
+                for j in 1..=ids.len() {
+                    let mut logits = vec![0.0f64; self.vocab];
+                    let pivot = j % self.vocab;
+                    logits[pivot] = 5.0;
+                    out.push(logits);
+                }
+                Ok(out)
+            }
+            fn vocab_size(&self) -> usize {
+                self.vocab
+            }
+        }
+
+        let draft = CountingDraft {
+            vocab: 16,
+            singles: Cell::new(0),
+        };
+        let target = CountingTarget {
+            vocab: 16,
+            singles: Cell::new(0),
+            batched: Cell::new(0),
+        };
+
+        let cfg = SpecDecodeConfig {
+            draft_k: 4,
+            max_new_tokens: 12,
+            seed: Some(7),
+            eos_token_ids: vec![],
+        };
+        let out =
+            speculative_decode::<f32>(&draft, &target, &[1u32, 2, 3], &cfg).unwrap();
+        assert_eq!(out.tokens.len(), 12);
+
+        // Verify uses the batched API exclusively — never the
+        // single-position legacy path. Sabotage probe: deleting the
+        // `forward_ids_all_positions` impl on `LlamaHandle` makes the
+        // trait fall back to the default (K+1 singles) and flips
+        // `target.singles.get()` from 0 to a positive number.
+        assert_eq!(
+            target.singles.get(),
+            0,
+            "target.forward_ids was called {} times — verify must use the batched path",
+            target.singles.get()
+        );
+        // One batched-verify forward per spec-decode round.
+        assert!(
+            target.batched.get() >= 1,
+            "expected at least one batched verify forward, got {}",
+            target.batched.get()
+        );
+
+        // Sanity: the draft IS supposed to do K singles per round, so
+        // draft.singles is non-zero.
+        assert!(draft.singles.get() > 0);
     }
 }

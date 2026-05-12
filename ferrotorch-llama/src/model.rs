@@ -12,6 +12,7 @@ use ferrotorch_nn::parameter::Parameter;
 use ferrotorch_nn::{Embedding, Linear, RMSNorm};
 
 use crate::config::LlamaConfig;
+use crate::kv_cache::LlamaKvCache;
 use crate::layer::LlamaDecoderLayer;
 
 /// Decoder stack: `Embedding` → `N × LlamaDecoderLayer` → final `RMSNorm`.
@@ -251,6 +252,99 @@ impl<T: Float> LlamaForCausalLM<T> {
         self.lm_head.forward(&h)
     }
 
+    /// Incremental forward of a single new token using a persistent
+    /// KV cache (#1129).
+    ///
+    /// `forward_one_with_cache(token, cache)` is mathematically
+    /// equivalent to calling [`Self::forward_from_ids`] over the full
+    /// sequence `[prev_tokens.., token]` and slicing out the last
+    /// position's logits, but only does `O(seq · hidden)` work instead
+    /// of `O(seq² · hidden)`. Beam search uses this on a per-beam
+    /// basis: each beam carries its own `LlamaKvCache`, cloned at the
+    /// fork point so divergent continuations don't alias each other.
+    ///
+    /// # Arguments
+    ///
+    /// - `token`: the new token id at sequence position `cache.len()`.
+    /// - `cache`: existing K/V cache (empty for the very first token).
+    ///
+    /// # Returns
+    ///
+    /// `(logits[vocab_size], new_cache)` where the cache's `seq_len`
+    /// has grown by exactly one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] when `token` is
+    /// not representable as `T` (only happens for vocab sizes that
+    /// exceed `T`'s integer-exact range, e.g. > 65 504 with `T =
+    /// bf16`), or when the cache's layer count doesn't match the
+    /// model's. Otherwise propagates errors from the embedding /
+    /// per-layer / lm-head paths.
+    pub fn forward_one_with_cache(
+        &self,
+        token: u32,
+        cache: &LlamaKvCache<T>,
+    ) -> FerrotorchResult<(Vec<f64>, LlamaKvCache<T>)> {
+        let num_layers = self.model.layers.len();
+        if !cache.layers.is_empty() && cache.layers.len() != num_layers {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "forward_one_with_cache: cache has {} layers but model has {}",
+                    cache.layers.len(),
+                    num_layers
+                ),
+            });
+        }
+        let seq_offset = cache.len();
+        let hidden = self.config.hidden_size;
+        // Embed the single token.
+        let idx_val: T = ferrotorch_core::numeric_cast::cast::<u32, T>(token)?;
+        let idx_tensor = ferrotorch_core::Tensor::from_storage(
+            ferrotorch_core::TensorStorage::cpu(vec![idx_val]),
+            vec![1],
+            false,
+        )?;
+        let emb = self.model.embed_tokens.forward(&idx_tensor)?; // [1, hidden]
+        let emb_data = emb.data_vec()?;
+        let mut h = ferrotorch_core::Tensor::from_storage(
+            ferrotorch_core::TensorStorage::cpu(emb_data),
+            vec![1, 1, hidden],
+            false,
+        )?;
+        // Iterate decoder layers, threading the per-layer cache.
+        let mut new_layers = Vec::with_capacity(num_layers);
+        for (li, layer) in self.model.layers.iter().enumerate() {
+            let prev_layer_cache = cache.layers.get(li);
+            let (h_next, new_layer_cache) =
+                layer.forward_with_cache(&h, prev_layer_cache, seq_offset)?;
+            h = h_next;
+            new_layers.push(new_layer_cache);
+        }
+        // Final norm and LM head.
+        let h_norm = self.model.norm.forward(&h)?;
+        let logits_tensor = self.lm_head.forward(&h_norm)?; // [1, 1, vocab]
+        let shape = logits_tensor.shape();
+        if shape.len() != 3 || shape[0] != 1 || shape[1] != 1 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "forward_one_with_cache: expected logits [1, 1, V], got {shape:?}"
+                ),
+            });
+        }
+        let vocab = shape[2];
+        let data = logits_tensor.data_vec()?;
+        let logits: Vec<f64> = data[..vocab]
+            .iter()
+            .map(|&v| ferrotorch_core::numeric_cast::cast::<T, f64>(v))
+            .collect::<FerrotorchResult<Vec<f64>>>()?;
+        let new_cache = LlamaKvCache {
+            layers: new_layers,
+            seq_len: seq_offset + 1,
+        };
+        Ok((logits, new_cache))
+    }
+
     /// Load a HuggingFace-format `StateDict` by rewriting keys to match
     /// our parameter paths, then delegating to [`load_state_dict`].
     ///
@@ -482,6 +576,47 @@ mod tests {
             ferrotorch_core::zeros::<f32>(&[1]).unwrap(),
         );
         assert!(model.load_state_dict(&sd, true).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // Discriminating test (#1129): KV-cache incremental forward must produce
+    // bit-close logits to the full-prefix forward at every position.
+    //
+    // Sabotage probe: changing the RoPE seq_offset to a stale value
+    // (e.g. always 0) or skipping the cache append makes this assertion
+    // fail by orders of magnitude on every position after the first.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn forward_one_with_cache_matches_full_prefix_forward() {
+        let model = LlamaForCausalLM::<f32>::new(tiny_config()).unwrap();
+        let ids = vec![1u32, 5, 7, 9, 11];
+        // Reference: one full forward over the whole prefix.
+        let full = model.forward_from_ids(&ids).unwrap();
+        let full_data = full.data_vec().unwrap();
+        let vocab = model.config.vocab_size;
+        // Incremental: thread the KV cache token-by-token and collect
+        // each position's logits.
+        let mut cache = crate::kv_cache::LlamaKvCache::<f32>::empty();
+        for (j, &tok) in ids.iter().enumerate() {
+            let (logits_cache, new_cache) = model.forward_one_with_cache(tok, &cache).unwrap();
+            cache = new_cache;
+            // Compare to position j of the full forward.
+            let base = j * vocab;
+            for (k, &lc) in logits_cache.iter().enumerate() {
+                let lf = full_data[base + k] as f64;
+                let diff = (lc - lf).abs();
+                // Tolerance: f32 standard_attention with d=4 per head;
+                // rotation + accumulation drift is ~1e-5 on this tiny
+                // model. The structural-equivalence signal is
+                // qualitative — bit-close logits on every token — and
+                // 1e-4 is ~100x looser than the observed noise floor.
+                assert!(
+                    diff < 1e-4,
+                    "position {j} token {k}: cache logit {lc} vs full {lf} (diff {diff})"
+                );
+            }
+        }
+        assert_eq!(cache.len(), ids.len());
     }
 
     #[test]

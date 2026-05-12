@@ -25,6 +25,7 @@ use ferrotorch_nn::{
 };
 
 use crate::config::LlamaConfig;
+use crate::kv_cache::LayerKvCache;
 
 /// Llama multi-head / grouped-query attention block.
 #[derive(Debug)]
@@ -90,6 +91,112 @@ impl<T: Float> LlamaAttention<T> {
     /// Per-head feature dimension; equals `hidden_size / num_heads`.
     pub fn head_dim(&self) -> usize {
         self.head_dim
+    }
+
+    /// Incremental forward pass for a single new token, attending
+    /// against a persistent K/V cache (#1129).
+    ///
+    /// # Input
+    ///
+    /// - `input`: `[1, 1, hidden_size]` — the embedded representation
+    ///   of the single new token at sequence position `seq_offset`.
+    /// - `cache`: optional existing [`LayerKvCache`] holding the
+    ///   previously-attended `[Hkv, S, d]` K and V slabs. `None` on
+    ///   the very first token.
+    /// - `seq_offset`: absolute position of the new token (i.e.
+    ///   `cache.seq_len()` when `cache` is `Some`, else `0`). Drives
+    ///   the RoPE angle.
+    ///
+    /// # Output
+    ///
+    /// `(attention_output[1, 1, hidden_size], new_layer_kv_cache)`.
+    /// The returned `LayerKvCache` has `seq_len = seq_offset + 1`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] when `input` is
+    /// not `[1, 1, hidden_size]`, or [`FerrotorchError::ShapeMismatch`]
+    /// when an existing `cache`'s K/V tensors disagree with
+    /// `num_kv_heads` / `head_dim`.
+    pub fn forward_with_cache(
+        &self,
+        input: &Tensor<T>,
+        cache: Option<&LayerKvCache<T>>,
+        seq_offset: usize,
+    ) -> FerrotorchResult<(Tensor<T>, LayerKvCache<T>)> {
+        let shape = input.shape();
+        if shape.len() != 3 || shape[0] != 1 || shape[1] != 1 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: format!(
+                    "LlamaAttention::forward_with_cache expects [1, 1, hidden] input, got {shape:?}"
+                ),
+            });
+        }
+        let hidden = self.num_heads * self.head_dim;
+        if shape[2] != hidden {
+            return Err(FerrotorchError::ShapeMismatch {
+                message: format!(
+                    "LlamaAttention::forward_with_cache: input last dim {} != hidden {}",
+                    shape[2], hidden
+                ),
+            });
+        }
+
+        // Project Q/K/V for the single new token: q [1,1,H*d], k/v [1,1,Hkv*d].
+        let q = self.q_proj.forward(input)?;
+        let k_new = self.k_proj.forward(input)?;
+        let v_new = self.v_proj.forward(input)?;
+        let kv_dim = self.num_kv_heads * self.head_dim;
+        // [1, 1, H*d] -> [1, H*d]
+        let q2 = reshape_2d(&q, 1, hidden)?;
+        let k2 = reshape_2d(&k_new, 1, kv_dim)?;
+        let v2 = reshape_2d(&v_new, 1, kv_dim)?;
+        // [1, H*d] -> [H, 1, d]
+        let q_h = reshape_to_heads(&q2, self.num_heads, 1, self.head_dim)?;
+        let k_h = reshape_to_heads(&k2, self.num_kv_heads, 1, self.head_dim)?;
+        let v_h = reshape_to_heads(&v2, self.num_kv_heads, 1, self.head_dim)?;
+
+        // Apply RoPE at absolute position `seq_offset` (only Q and K
+        // get rotated; V is positional-invariant).
+        let q_rot = self.rope.apply(&q_h, seq_offset)?;
+        let k_rot = self.rope.apply(&k_h, seq_offset)?;
+
+        // Append the new K/V row to the existing cache (or seed the
+        // cache if this is the first token). The cache stores
+        // [Hkv, seq, d] post-RoPE keys and raw values.
+        let new_cache = if let Some(prev) = cache {
+            prev.append(&k_rot, &v_h)?
+        } else {
+            if seq_offset != 0 {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "LlamaAttention::forward_with_cache: cache=None but \
+                         seq_offset={seq_offset} (expected 0 for first token)"
+                    ),
+                });
+            }
+            LayerKvCache::from_single_token(k_rot, v_h)?
+        };
+
+        // GQA broadcast: K/V heads expand to match Q head count.
+        let group_size = self.num_heads / self.num_kv_heads;
+        let k_full = repeat_kv(&new_cache.k, group_size)?;
+        let v_full = repeat_kv(&new_cache.v, group_size)?;
+
+        // Attention: N_q=1 against N_k=seq_offset+1. Use causal=false
+        // since the standard_attention causal mask is "j > i" which
+        // would mask everything but position 0 when N_q=1 — wrong for
+        // incremental decoding where the single query position is the
+        // *last* row of the full sequence and can attend to all
+        // history. With N_q=1 there is no future to mask.
+        let ctx = standard_attention(&q_rot, &k_full, &v_full, false)?;
+
+        // [H, 1, d] -> [1, H*d]
+        let ctx2 = transpose_heads_to_2d(&ctx, self.num_heads, 1, self.head_dim)?;
+        // [1, H*d] -> [1, 1, hidden]
+        let ctx3 = reshape_3d(&ctx2, 1, 1, hidden)?;
+        let out = self.o_proj.forward(&ctx3)?;
+        Ok((out, new_cache))
     }
 }
 

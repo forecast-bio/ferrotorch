@@ -154,6 +154,7 @@ pub mod gpu;
 /// standalone [`ferrotorch_grammar`] crate. This alias keeps the old
 /// path working so existing callers compile unchanged.
 pub use ferrotorch_grammar as grammar;
+pub mod kv_cache;
 pub mod layer;
 pub mod mlp;
 pub mod model;
@@ -167,6 +168,7 @@ pub use generation::{
     generate_with_streamer, sample_softmax, top_k_filter, top_p_filter,
 };
 pub use gguf_remap::{gguf_key_to_hf, gguf_to_hf_state_dict};
+pub use kv_cache::{LayerKvCache, LlamaKvCache};
 pub use layer::LlamaDecoderLayer;
 pub use mlp::LlamaMLP;
 pub use model::{LlamaForCausalLM, LlamaModel};

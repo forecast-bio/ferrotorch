@@ -425,18 +425,44 @@ pub fn beam_search<T: Float>(
         });
     }
 
-    /// One live beam: the produced continuation + cumulative log-prob.
+    /// One live beam: the produced continuation, the cumulative
+    /// log-prob, and the persistent KV cache holding the K/V slabs
+    /// for the prompt and all previously-produced tokens (#1129).
+    /// The cache is cloned at fork points (one parent beam fans out
+    /// to N child beams) so each child can advance independently
+    /// without aliasing the parent's stale state.
     #[derive(Clone, Debug)]
-    struct Beam {
+    struct Beam<T: Float> {
         produced: Vec<u32>,
         score: f64,
         finished: bool,
+        /// Per-beam KV cache covering the prompt + produced tokens.
+        /// `cache.len()` always equals `prompt_ids.len() + produced.len()`
+        /// for live (non-finished) beams.
+        cache: crate::kv_cache::LlamaKvCache<T>,
+        /// Cached last-token logits for the next expansion step.
+        /// Updated by `forward_one_with_cache` when the beam advances.
+        next_logits: Vec<f64>,
     }
 
-    let mut live: Vec<Beam> = vec![Beam {
+    // Seed: feed the prompt through the model once with a fresh KV
+    // cache. After this, `cache` covers all `prompt_ids.len()`
+    // positions and `next_logits` holds the distribution for the
+    // first new token. We pay the prompt forward once instead of
+    // once per beam per step.
+    let mut seed_cache = crate::kv_cache::LlamaKvCache::<T>::empty();
+    let mut seed_logits: Vec<f64> = Vec::new();
+    for &tok in prompt_ids {
+        let (logits, new_cache) = model.forward_one_with_cache(tok, &seed_cache)?;
+        seed_cache = new_cache;
+        seed_logits = logits;
+    }
+    let mut live: Vec<Beam<T>> = vec![Beam {
         produced: Vec::new(),
         score: 0.0,
         finished: false,
+        cache: seed_cache,
+        next_logits: seed_logits,
     }];
 
     for _step in 0..config.max_new_tokens {
@@ -456,24 +482,11 @@ pub fn beam_search<T: Float>(
                 candidates.push((bi, u32::MAX, beam.score));
                 continue;
             }
-            // Forward pass over prompt + this beam's continuation.
-            let mut ids = prompt_ids.to_vec();
-            ids.extend_from_slice(&beam.produced);
-            let logits_tensor = model.forward_from_ids(&ids)?;
-            let shape = logits_tensor.shape();
-            if shape.len() != 3 {
-                return Err(FerrotorchError::InvalidArgument {
-                    message: format!("beam_search: expected logits shape [1, S, V], got {shape:?}"),
-                });
-            }
-            let seq_len = shape[1];
-            let vocab = shape[2];
-            let data = logits_tensor.data_vec()?;
-            let last_offset = (seq_len - 1) * vocab;
-            let logits: Vec<f64> = data[last_offset..last_offset + vocab]
-                .iter()
-                .map(|&v| ferrotorch_core::numeric_cast::cast::<T, f64>(v))
-                .collect::<FerrotorchResult<Vec<f64>>>()?;
+            // The beam already holds the last-position logits computed
+            // by the previous `forward_one_with_cache` call (or by the
+            // prompt seed for step 0) — no full-prefix re-forward here.
+            let logits = &beam.next_logits;
+            let vocab = logits.len();
 
             // Softmax → log-prob in the numerically-stable way.
             let max_logit = logits.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -503,21 +516,33 @@ pub fn beam_search<T: Float>(
             .sort_unstable_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
         candidates.truncate(config.num_beams);
 
-        // Build the next round of beams.
-        let mut next_live: Vec<Beam> = Vec::with_capacity(candidates.len());
+        // Build the next round of beams. Each surviving (bi, tok)
+        // pair forks beam bi: clone its cache, advance one step with
+        // `tok`, store the new logits for the next expansion. Cache
+        // cloning is intentional — divergent continuations need
+        // independent K/V trails.
+        let mut next_live: Vec<Beam<T>> = Vec::with_capacity(candidates.len());
         for (bi, tok, score) in candidates {
             if tok == u32::MAX {
-                // Pass-through finished beam.
+                // Pass-through finished beam — no forward needed.
                 next_live.push(live[bi].clone());
                 continue;
             }
-            let mut produced = live[bi].produced.clone();
+            let parent = &live[bi];
+            let mut produced = parent.produced.clone();
             produced.push(tok);
+            // KV cache advance: clone parent's cache and step one
+            // token forward. This is the single forward per
+            // (beam, step) that replaces the per-beam full-prefix
+            // forward in the pre-#1129 implementation.
+            let (next_logits, new_cache) = model.forward_one_with_cache(tok, &parent.cache)?;
             let finished = config.eos_token_ids.contains(&tok);
             next_live.push(Beam {
                 produced,
                 score,
                 finished,
+                cache: new_cache,
+                next_logits,
             });
         }
         live = next_live;
@@ -785,6 +810,80 @@ mod tests {
                 assert!(tok < cfg.vocab_size as u32);
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Discriminating test (#1129): KV-cache beam_search produces the SAME
+    // top continuation as a hand-rolled reference that calls
+    // `forward_from_ids` over the full prefix for every beam at every
+    // step. Numerical drift between cache and full-prefix is bounded by
+    // forward_one_with_cache_matches_full_prefix_forward; we assert
+    // top-1 token equality here on a tiny deterministic model.
+    //
+    // Sabotage probe: making forward_one_with_cache always return zero
+    // logits flips this test to FAIL on the very first beam token.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn beam_search_matches_full_prefix_reference_top1() {
+        use crate::config::LlamaConfig;
+        let cfg = LlamaConfig {
+            vocab_size: 16,
+            hidden_size: 16,
+            intermediate_size: 32,
+            num_hidden_layers: 2,
+            num_attention_heads: 4,
+            num_key_value_heads: 2,
+            max_position_embeddings: 32,
+            rms_norm_eps: 1e-5,
+            rope_theta: 10000.0,
+            tie_word_embeddings: false,
+            hidden_act: crate::config::LlamaActivation::Silu,
+        };
+        let model = LlamaForCausalLM::<f32>::new(cfg).unwrap();
+        let prompt = vec![1u32, 3, 5];
+
+        // Greedy reference: emulate `beam_search(num_beams=1)` by hand,
+        // calling `forward_from_ids` over the full prefix each step
+        // and picking argmax. With num_beams=1 the global top-1 always
+        // equals this greedy choice.
+        let mut ref_tokens: Vec<u32> = Vec::new();
+        for _ in 0..4 {
+            let mut ids = prompt.clone();
+            ids.extend_from_slice(&ref_tokens);
+            let logits_tensor = model.forward_from_ids(&ids).unwrap();
+            let shape = logits_tensor.shape();
+            let seq_len = shape[1];
+            let vocab = shape[2];
+            let data = logits_tensor.data_vec().unwrap();
+            let last_offset = (seq_len - 1) * vocab;
+            let mut best = 0u32;
+            let mut best_v = f32::NEG_INFINITY;
+            for (k, &v) in data[last_offset..last_offset + vocab].iter().enumerate() {
+                if v > best_v {
+                    best_v = v;
+                    best = k as u32;
+                }
+            }
+            ref_tokens.push(best);
+        }
+
+        // beam_search with num_beams=1 (greedy beam) — must match.
+        let beams = beam_search(
+            &model,
+            &prompt,
+            &BeamSearchConfig {
+                num_beams: 1,
+                max_new_tokens: 4,
+                length_penalty: 1.0,
+                eos_token_ids: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(beams.len(), 1);
+        assert_eq!(
+            beams[0], ref_tokens,
+            "KV-cache beam_search top-1 must match full-prefix greedy reference"
+        );
     }
 
     #[test]
