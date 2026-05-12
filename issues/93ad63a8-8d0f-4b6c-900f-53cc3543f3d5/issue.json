@@ -2,11 +2,12 @@
   "uuid": "93ad63a8-8d0f-4b6c-900f-53cc3543f3d5",
   "display_id": 1171,
   "title": "ferrotorch-core autograd backward parity vs torch.autograd",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-12T16:43:55.233217881Z",
-  "updated_at": "2026-05-12T16:43:56.820031867Z",
+  "updated_at": "2026-05-12T16:59:15.887963254Z",
+  "closed_at": "2026-05-12T16:59:15.887963254Z",
   "labels": [
     "real-artifact"
   ]
