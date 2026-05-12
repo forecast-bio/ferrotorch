@@ -1,0 +1,10 @@
+{
+  "uuid": "1bd9b7c8-a20a-445a-88e6-cbf588d0a1be",
+  "issue_uuid": "9d2bc7cc-31a3-4f29-b291-6a35d7b87f7e",
+  "author": "y4rr",
+  "content": "Observation: 17 distribution + 8 KL configs run locally. 24 PASS, 1 FAIL. The single FAIL is multinomial_k3_n20 sample variance: rust=[3.22, 4.18, 5.06] vs torch ref=[3.18, 4.13, 4.92], max_abs=0.144 > tol 0.10. This is NOT a ferrotorch bug — log_prob max_abs=0.0 (byte-identical to torch), sample means agree to 0.046, both variance estimators bracket the theoretical n*p*(1-p)=[3.2, 4.2, 5.0]. The disagreement is honest MC noise at N=10000: for a per-category variance ~5, the difference between two independent estimators is sqrt(2/N)*var ~ 0.1 at 1-sigma. The dispatch forbids tolerance loosening, so this surfaces as a legitimate FAIL — but it is provably PRNG/MC variance, not an algorithm bug. Per the dispatch's 'moment-based comparison (no PRNG byte-match)' rule + 'NO tolerance loosening' constraint, this is the correct honest outcome.",
+  "created_at": "2026-05-12T15:22:21.995023594Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA8TbLQGWlMqmRYPHrSQqC4Kb0lt+lWY7B7m8dZSqORKhGNAMMBsNv2Jc6PkkI+GDJVKLCm7pj7oUEJpQRSccdAg=="
+}
