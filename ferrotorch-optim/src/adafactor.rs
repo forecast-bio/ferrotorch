@@ -20,6 +20,7 @@ use crate::optimizer::{
     Optimizer, OptimizerState, ParamGroup, fill_t_workspace, resize_f64_workspace,
     resize_typed_workspace,
 };
+use crate::param_key::ParamKey;
 
 /// Hyperparameters for the Adafactor optimizer.
 #[derive(Debug, Clone, Copy)]
@@ -140,7 +141,9 @@ struct AdafactorState {
 pub struct Adafactor<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: AdafactorConfig,
-    state: HashMap<String, AdafactorState>,
+    /// CL-1122: typed key replaces per-step `format!("g{}_p{}")` heap
+    /// allocation; checkpoint wire format unchanged via `Display`/`FromStr`.
+    state: HashMap<ParamKey, AdafactorState>,
     /// CL-1125: reusable per-step workspaces. Without these, every step
     /// heap-allocated:
     ///
@@ -175,8 +178,10 @@ impl<T: Float> Adafactor<T> {
         }
     }
 
-    fn param_key(gi: usize, pi: usize) -> String {
-        format!("g{gi}_p{pi}")
+    /// CL-1122: typed `ParamKey` replaces the legacy `String` key built
+    /// by `format!("g{}_p{}")` on every step.
+    fn param_key(gi: usize, pi: usize) -> ParamKey {
+        ParamKey::new(gi, pi)
     }
 }
 

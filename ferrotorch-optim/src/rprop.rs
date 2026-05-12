@@ -38,6 +38,7 @@ use ferrotorch_nn::Parameter;
 use crate::optimizer::{
     Optimizer, OptimizerState, ParamGroup, fill_f64_workspace, resize_typed_workspace,
 };
+use crate::param_key::ParamKey;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -122,7 +123,9 @@ struct RpropParamState {
 pub struct Rprop<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: RpropConfig,
-    state: HashMap<String, RpropParamState>,
+    /// CL-1122: typed key replaces per-step `format!("g{}_p{}")` heap
+    /// allocation; checkpoint wire format unchanged via `Display`/`FromStr`.
+    state: HashMap<ParamKey, RpropParamState>,
     /// CL-1125: reusable per-step workspaces for the CPU step path. See
     /// `Adam`'s field docs for the motivation; Rprop suffers the same
     /// per-step `Vec<f64>` allocation pattern.
@@ -145,9 +148,11 @@ impl<T: Float> Rprop<T> {
         }
     }
 
+    /// CL-1122: typed `ParamKey` replaces the legacy `String` key built
+    /// by `format!("g{}_p{}")` on every step.
     #[inline]
-    fn param_key(group_idx: usize, param_idx: usize) -> String {
-        format!("g{group_idx}_p{param_idx}")
+    fn param_key(group_idx: usize, param_idx: usize) -> ParamKey {
+        ParamKey::new(group_idx, param_idx)
     }
 }
 
@@ -298,17 +303,21 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
     fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
         for (key, ps) in &self.state {
+            // CL-1122: render typed `ParamKey` to the legacy
+            // `"g{}_p{}"` wire format via Display.
             let mut entry = HashMap::new();
             entry.insert("step_count".to_string(), vec![ps.step_count as f64]);
             entry.insert("prev_grad".to_string(), ps.prev_grad.clone());
             entry.insert("step_size".to_string(), ps.step_size.clone());
-            out.insert(key.clone(), entry);
+            out.insert(key.to_string(), entry);
         }
         Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
         for (key, entry) in state {
+            // CL-1122: parse `"g{}_p{}"` back into the typed key.
+            let key: ParamKey = key.parse()?;
             let step_count = entry
                 .get("step_count")
                 .and_then(|v| v.first())
@@ -328,7 +337,7 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
             })?;
 
             self.state.insert(
-                key.clone(),
+                key,
                 RpropParamState {
                     step_count,
                     prev_grad,
@@ -486,7 +495,7 @@ mod tests {
         let saved = opt
             .state_dict()
             .expect("rprop state_dict must succeed in test");
-        let key = Rprop::<f64>::param_key(0, 0);
+        let key: String = Rprop::<f64>::param_key(0, 0).to_string();
         assert_eq!(saved[&key]["step_count"][0] as u64, 3);
         assert!(saved[&key].contains_key("prev_grad"));
         assert!(saved[&key].contains_key("step_size"));

@@ -19,6 +19,7 @@ use ferrotorch_nn::Parameter;
 use crate::optimizer::{
     Optimizer, OptimizerState, ParamGroup, fill_f64_workspace, resize_typed_workspace,
 };
+use crate::param_key::ParamKey;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -158,11 +159,11 @@ pub struct AdamW<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: AdamWConfig,
     /// Legacy CPU-side per-parameter state, keyed by
-    /// `"g{group_idx}_p{param_idx}"`. Used when `config.foreach == false`.
-    state: HashMap<String, AdamWParamState>,
+    /// [`ParamKey`]. Used when `config.foreach == false`. CL-1122.
+    state: HashMap<ParamKey, AdamWParamState>,
     /// Foreach (on-device) per-parameter state. Used when
     /// `config.foreach == true`.
-    foreach_state: HashMap<String, AdamWForeachState<T>>,
+    foreach_state: HashMap<ParamKey, AdamWForeachState<T>>,
     /// CL-1125: reusable per-step workspaces for the legacy CPU `step` path.
     /// See `Adam`'s field docs for the motivation. AdamW additionally stages
     /// the new moments through `exp_avg_new_workspace` /
@@ -210,9 +211,13 @@ impl<T: Float> AdamW<T> {
     }
 
     /// Generate the state key for a parameter.
+    ///
+    /// CL-1122: typed `ParamKey` replaces the legacy `String` key built
+    /// by `format!("g{}_p{}")`. The wire format on `state_dict()` /
+    /// `load_state_dict()` is preserved via `Display` / `FromStr`.
     #[inline]
-    fn param_key(group_idx: usize, param_idx: usize) -> String {
-        format!("g{group_idx}_p{param_idx}")
+    fn param_key(group_idx: usize, param_idx: usize) -> ParamKey {
+        ParamKey::new(group_idx, param_idx)
     }
 
     /// Foreach (on-device, tensor-op) update path used when
@@ -256,7 +261,7 @@ impl<T: Float> AdamW<T> {
                     // `or_insert_with` (whose closure cannot return
                     // `Result`); a fallible zeros / .to(device) here
                     // would otherwise have to panic.
-                    let next_step = match self.foreach_state.entry(key.clone()) {
+                    let next_step = match self.foreach_state.entry(key) {
                         Entry::Vacant(slot) => {
                             let exp_avg = zeros::<T>(param_t.shape())?.to(device)?;
                             let exp_avg_sq = zeros::<T>(param_t.shape())?.to(device)?;
@@ -548,17 +553,22 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
     fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
         for (key, ps) in &self.state {
+            // CL-1122: render typed `ParamKey` to the `"g{}_p{}"` wire
+            // format via Display so checkpoints round-trip unchanged.
             let mut entry = HashMap::new();
             entry.insert("step_count".to_string(), vec![ps.step_count as f64]);
             entry.insert("exp_avg".to_string(), ps.exp_avg.clone());
             entry.insert("exp_avg_sq".to_string(), ps.exp_avg_sq.clone());
-            out.insert(key.clone(), entry);
+            out.insert(key.to_string(), entry);
         }
         Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
         for (key, entry) in state {
+            // CL-1122: parse the on-disk `"g{}_p{}"` string back into a
+            // typed `ParamKey`. Invalid keys surface as `InvalidArgument`.
+            let key: ParamKey = key.parse()?;
             let step_count = entry
                 .get("step_count")
                 .and_then(|v| v.first())
@@ -580,7 +590,7 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
             })?;
 
             self.state.insert(
-                key.clone(),
+                key,
                 AdamWParamState {
                     step_count,
                     exp_avg,
@@ -940,8 +950,9 @@ mod tests {
             .expect("adamw state_dict must succeed in test");
         assert!(!saved.is_empty(), "state dict should be non-empty");
 
-        // Verify the saved state has expected keys.
-        let key = AdamW::<f64>::param_key(0, 0);
+        // Verify the saved state has expected keys (the typed `ParamKey`
+        // is rendered to the `"g{}_p{}"` wire format via Display).
+        let key: String = AdamW::<f64>::param_key(0, 0).to_string();
         assert!(saved.contains_key(&key), "expected key {key} in state dict");
 
         let entry = &saved[&key];

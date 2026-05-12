@@ -13,6 +13,7 @@
 //! CL-319
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
@@ -20,6 +21,7 @@ use ferrotorch_nn::Parameter;
 
 use crate::foreach_utils::f64_scalar_on;
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
+use crate::param_key::ParamKey;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -134,9 +136,11 @@ struct AdadeltaForeachState<T: Float> {
 pub struct Adadelta<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: AdadeltaConfig,
-    state: HashMap<String, AdadeltaParamState>,
+    /// CL-1122: typed key replaces per-step `format!("g{}_p{}")` heap
+    /// allocation; checkpoint wire format unchanged via `Display`/`FromStr`.
+    state: HashMap<ParamKey, AdadeltaParamState>,
     /// Foreach (on-device) state. Used when `config.foreach == true`.
-    foreach_state: HashMap<String, AdadeltaForeachState<T>>,
+    foreach_state: HashMap<ParamKey, AdadeltaForeachState<T>>,
 }
 
 impl<T: Float> Adadelta<T> {
@@ -152,9 +156,11 @@ impl<T: Float> Adadelta<T> {
         }
     }
 
+    /// CL-1122: typed `ParamKey` replaces the legacy `String` key built
+    /// by `format!("g{}_p{}")` on every step.
     #[inline]
-    fn param_key(group_idx: usize, param_idx: usize) -> String {
-        format!("g{group_idx}_p{param_idx}")
+    fn param_key(group_idx: usize, param_idx: usize) -> ParamKey {
+        ParamKey::new(group_idx, param_idx)
     }
 
     /// Foreach (on-device, tensor-op) update path. CL-497
@@ -180,15 +186,15 @@ impl<T: Float> Adadelta<T> {
                 let device = param_t.device();
                 let key = Self::param_key(gi, pi);
 
-                if !self.foreach_state.contains_key(&key) {
-                    self.foreach_state.insert(
-                        key.clone(),
-                        AdadeltaForeachState {
-                            step_count: 0,
-                            square_avg: zeros::<T>(param_t.shape())?.to(device)?,
-                            acc_delta: zeros::<T>(param_t.shape())?.to(device)?,
-                        },
-                    );
+                // Use `Entry::Vacant` (not `contains_key`+`insert`) so
+                // the fallible `zeros()?.to(device)?` allocations can
+                // propagate `Err` cleanly. clippy::map_entry.
+                if let Entry::Vacant(slot) = self.foreach_state.entry(key) {
+                    slot.insert(AdadeltaForeachState {
+                        step_count: 0,
+                        square_avg: zeros::<T>(param_t.shape())?.to(device)?,
+                        acc_delta: zeros::<T>(param_t.shape())?.to(device)?,
+                    });
                 }
 
                 no_grad(|| {
@@ -408,17 +414,21 @@ impl<T: Float> Optimizer<T> for Adadelta<T> {
     fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
         for (key, ps) in &self.state {
+            // CL-1122: render typed `ParamKey` to the legacy
+            // `"g{}_p{}"` wire format via Display.
             let mut entry = HashMap::new();
             entry.insert("step_count".to_string(), vec![ps.step_count as f64]);
             entry.insert("square_avg".to_string(), ps.square_avg.clone());
             entry.insert("acc_delta".to_string(), ps.acc_delta.clone());
-            out.insert(key.clone(), entry);
+            out.insert(key.to_string(), entry);
         }
         Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
         for (key, entry) in state {
+            // CL-1122: parse `"g{}_p{}"` back into the typed key.
+            let key: ParamKey = key.parse()?;
             let step_count = entry
                 .get("step_count")
                 .and_then(|v| v.first())
@@ -438,7 +448,7 @@ impl<T: Float> Optimizer<T> for Adadelta<T> {
             })?;
 
             self.state.insert(
-                key.clone(),
+                key,
                 AdadeltaParamState {
                     step_count,
                     square_avg,
@@ -545,7 +555,7 @@ mod tests {
         let saved = opt
             .state_dict()
             .expect("adadelta state_dict must succeed in test");
-        let key = Adadelta::<f64>::param_key(0, 0);
+        let key: String = Adadelta::<f64>::param_key(0, 0).to_string();
         assert_eq!(saved[&key]["step_count"][0] as u64, 3);
         assert!(saved[&key].contains_key("square_avg"));
         assert!(saved[&key].contains_key("acc_delta"));

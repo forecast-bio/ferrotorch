@@ -28,6 +28,7 @@
 //! never recorded in the autograd graph.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 
 use ferrotorch_core::creation::{eye, scalar};
 use ferrotorch_core::grad_fns::arithmetic::{add, mul, sub};
@@ -171,8 +172,17 @@ pub struct Kfac<T: Float> {
     config: KfacConfig,
     step_count: usize,
     /// Per-parameter Kronecker factors, keyed by a user-supplied name
-    /// (typically the layer/parameter name).
+    /// (typically the layer/parameter name). K-FAC keeps the user-facing
+    /// `String` keying scheme because `update_factors(param_name: &str)`
+    /// accepts arbitrary names that are not necessarily in the
+    /// `"g{}_p{}"` format that other optimizers use internally.
     factors: HashMap<String, KroneckerFactors<T>>,
+    /// CL-1122: reusable scratch buffer for rendering the
+    /// `"g{group_idx}_p{param_idx}"` lookup key inside `step()`. Replaces
+    /// the per-iteration `format!()` heap allocation: a single
+    /// `String::clear` + `write!` writes into the buffer's existing
+    /// capacity (after warmup, zero allocations per step from this path).
+    param_key_buf: String,
 }
 
 impl<T: Float> Kfac<T> {
@@ -186,10 +196,25 @@ impl<T: Float> Kfac<T> {
             config,
             step_count: 0,
             factors: HashMap::new(),
+            param_key_buf: String::new(),
         }
     }
 
     /// Generate the state key for a parameter (group index, param index).
+    ///
+    /// Returns an owned `String` because `factors` is `HashMap<String, _>`
+    /// — unlike the other 10 optimizers in this crate, K-FAC's public
+    /// `update_factors(param_name: &str, ...)` API accepts arbitrary
+    /// user-supplied names (not necessarily `"g{}_p{}"`-shaped), so the
+    /// map cannot be mechanically converted to `HashMap<ParamKey, _>`
+    /// without a public API break. The hot `step()` loop does **not**
+    /// call this — it renders the key directly into
+    /// [`Self::param_key_buf`] via `write!`, reusing the buffer's
+    /// allocator-owned capacity across iterations. CL-1122.
+    ///
+    /// `#[cfg(test)]`-gated because the only callers are unit tests that
+    /// need to construct the same key the step loop uses.
+    #[cfg(test)]
     #[inline]
     fn param_key(group_idx: usize, param_idx: usize) -> String {
         format!("g{group_idx}_p{param_idx}")
@@ -406,9 +431,21 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
                     None => continue,
                 };
 
-                let key = Self::param_key(gi, pi);
+                // CL-1122: avoid the per-step `format!("g{gi}_p{pi}")`
+                // heap allocation by reusing the optimizer-owned
+                // `param_key_buf`. `mem::take` temporarily moves the
+                // buffer out of `self` so we own a `String` that does
+                // not borrow `self.factors` — the buffer is restored
+                // at the end of the iteration via `mem::swap`,
+                // preserving its allocator-owned capacity. After the
+                // first parameter has been seen the capacity is large
+                // enough that subsequent `write!`s do not reallocate.
+                let mut key = std::mem::take(&mut self.param_key_buf);
+                key.clear();
+                write!(&mut key, "g{gi}_p{pi}")
+                    .expect("writing to a String never fails");
 
-                no_grad(|| -> FerrotorchResult<()> {
+                let step_result = no_grad(|| -> FerrotorchResult<()> {
                     // grad: device-resident (negated for maximize).
                     let mut grad: Tensor<T> = if self.config.maximize {
                         ferrotorch_core::grad_fns::arithmetic::neg(&grad_tensor)?
@@ -524,7 +561,15 @@ impl<T: Float> Optimizer<T> for Kfac<T> {
                     unsafe { param_t.update_storage(storage)? };
 
                     Ok(())
-                })?;
+                });
+
+                // CL-1122: restore the rendered key buffer to `self`
+                // regardless of whether the inner closure succeeded.
+                // Capacity is preserved across iterations; the next
+                // `clear()` + `write!` reuses the allocation.
+                self.param_key_buf = key;
+
+                step_result?;
             }
         }
 

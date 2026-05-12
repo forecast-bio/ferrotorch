@@ -13,6 +13,7 @@ use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup, fill_t_workspace};
+use crate::param_key::ParamKey;
 
 /// Hyperparameters for the SparseAdam optimizer.
 #[derive(Debug, Clone, Copy)]
@@ -81,7 +82,10 @@ struct SparseAdamState {
 pub struct SparseAdam<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: SparseAdamConfig,
-    state: HashMap<String, SparseAdamState>,
+    /// CL-1122: typed key replaces per-step `format!("g{}_p{}")` heap
+    /// allocation (wire format preserved via Display, though SparseAdam
+    /// state is not currently serialised).
+    state: HashMap<ParamKey, SparseAdamState>,
     /// CL-1125: reusable per-step workspaces for the typed param/grad
     /// reads. SparseAdam is CPU-only (CUDA returns
     /// `NotImplementedOnCuda`); the param buffer is read, mutated
@@ -104,8 +108,10 @@ impl<T: Float> SparseAdam<T> {
         }
     }
 
-    fn param_key(gi: usize, pi: usize) -> String {
-        format!("g{gi}_p{pi}")
+    /// CL-1122: typed `ParamKey` replaces the legacy `String` key built
+    /// by `format!("g{}_p{}")` on every step.
+    fn param_key(gi: usize, pi: usize) -> ParamKey {
+        ParamKey::new(gi, pi)
     }
 }
 

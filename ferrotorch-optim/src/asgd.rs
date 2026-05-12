@@ -10,6 +10,7 @@
 //! CL-319
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
@@ -17,6 +18,7 @@ use ferrotorch_nn::Parameter;
 
 use crate::foreach_utils::f64_scalar_on;
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
+use crate::param_key::ParamKey;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -144,9 +146,11 @@ struct AsgdForeachState<T: Float> {
 pub struct Asgd<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: AsgdConfig,
-    state: HashMap<String, AsgdParamState>,
+    /// CL-1122: typed key replaces per-step `format!("g{}_p{}")` heap
+    /// allocation; checkpoint wire format unchanged via `Display`/`FromStr`.
+    state: HashMap<ParamKey, AsgdParamState>,
     /// Foreach (on-device) state. Used when `config.foreach == true`.
-    foreach_state: HashMap<String, AsgdForeachState<T>>,
+    foreach_state: HashMap<ParamKey, AsgdForeachState<T>>,
 }
 
 impl<T: Float> Asgd<T> {
@@ -170,9 +174,11 @@ impl<T: Float> Asgd<T> {
         self.state.get(&key).map(|s| s.ax.as_slice())
     }
 
+    /// CL-1122: typed `ParamKey` replaces the legacy `String` key built
+    /// by `format!("g{}_p{}")` on every step.
     #[inline]
-    fn param_key(group_idx: usize, param_idx: usize) -> String {
-        format!("g{group_idx}_p{param_idx}")
+    fn param_key(group_idx: usize, param_idx: usize) -> ParamKey {
+        ParamKey::new(group_idx, param_idx)
     }
 
     /// Foreach (on-device, tensor-op) update path. CL-497
@@ -197,16 +203,17 @@ impl<T: Float> Asgd<T> {
                 let key = Self::param_key(gi, pi);
 
                 // Lazy-init state. ax starts as a copy of the parameter.
-                if !self.foreach_state.contains_key(&key) {
-                    self.foreach_state.insert(
-                        key.clone(),
-                        AsgdForeachState {
-                            step_count: 0,
-                            eta: group_lr,
-                            mu: 1.0,
-                            ax: param_t.clone(),
-                        },
-                    );
+                // `Entry::Vacant` (not `contains_key`+`insert`) avoids
+                // the clippy::map_entry warning while keeping init
+                // infallible — there are no `?` allocations here, but
+                // the entry-API form is the clippy-preferred shape.
+                if let Entry::Vacant(slot) = self.foreach_state.entry(key) {
+                    slot.insert(AsgdForeachState {
+                        step_count: 0,
+                        eta: group_lr,
+                        mu: 1.0,
+                        ax: param_t.clone(),
+                    });
                 }
 
                 no_grad(|| {
@@ -431,18 +438,22 @@ impl<T: Float> Optimizer<T> for Asgd<T> {
     fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
         for (key, ps) in &self.state {
+            // CL-1122: render typed `ParamKey` to the legacy
+            // `"g{}_p{}"` wire format via Display.
             let mut entry = HashMap::new();
             entry.insert("step_count".to_string(), vec![ps.step_count as f64]);
             entry.insert("eta".to_string(), vec![ps.eta]);
             entry.insert("mu".to_string(), vec![ps.mu]);
             entry.insert("ax".to_string(), ps.ax.clone());
-            out.insert(key.clone(), entry);
+            out.insert(key.to_string(), entry);
         }
         Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
         for (key, entry) in state {
+            // CL-1122: parse `"g{}_p{}"` back into the typed key.
+            let key: ParamKey = key.parse()?;
             let step_count = entry
                 .get("step_count")
                 .and_then(|v| v.first())
@@ -469,7 +480,7 @@ impl<T: Float> Optimizer<T> for Asgd<T> {
                 })?;
 
             self.state.insert(
-                key.clone(),
+                key,
                 AsgdParamState {
                     step_count,
                     eta,
@@ -677,7 +688,7 @@ mod tests {
         let saved = opt
             .state_dict()
             .expect("asgd state_dict must succeed in test");
-        let key = Asgd::<f64>::param_key(0, 0);
+        let key: String = Asgd::<f64>::param_key(0, 0).to_string();
         assert_eq!(saved[&key]["step_count"][0] as u64, 3);
         assert!(saved[&key].contains_key("eta"));
         assert!(saved[&key].contains_key("mu"));

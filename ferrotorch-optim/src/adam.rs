@@ -19,6 +19,7 @@ use crate::foreach_utils::elemwise_max;
 use crate::optimizer::{
     Optimizer, OptimizerState, ParamGroup, fill_f64_workspace, resize_typed_workspace,
 };
+use crate::param_key::ParamKey;
 
 // ---------------------------------------------------------------------------
 // AdamConfig
@@ -165,11 +166,13 @@ pub struct Adam<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: AdamConfig,
     /// Per-parameter state (legacy CPU path), keyed by
-    /// `"g{group_idx}_p{param_idx}"`. Used when `config.foreach == false`.
-    state: HashMap<String, AdamParamState>,
+    /// [`ParamKey`]. Used when `config.foreach == false`.
+    /// CL-1122: typed key replaces per-step `format!("g{}_p{}")` heap
+    /// allocation; checkpoint wire format unchanged via Display/FromStr.
+    state: HashMap<ParamKey, AdamParamState>,
     /// Foreach (on-device) per-parameter state. Used when
     /// `config.foreach == true`.
-    foreach_state: HashMap<String, AdamForeachState<T>>,
+    foreach_state: HashMap<ParamKey, AdamForeachState<T>>,
     /// CL-1125: reusable per-step workspaces for the legacy CPU `step` path.
     ///
     /// Without these, each call to [`Optimizer::step`] allocated two fresh
@@ -200,9 +203,14 @@ impl<T: Float> Adam<T> {
     }
 
     /// Generate the state key for a parameter.
+    ///
+    /// CL-1122: typed `ParamKey` replaces the legacy `String` key built
+    /// by `format!("g{}_p{}")`. The wire format on `state_dict()` /
+    /// `load_state_dict()` is preserved via `ParamKey`'s `Display` /
+    /// `FromStr` impls.
     #[inline]
-    fn param_key(group_idx: usize, param_idx: usize) -> String {
-        format!("g{group_idx}_p{param_idx}")
+    fn param_key(group_idx: usize, param_idx: usize) -> ParamKey {
+        ParamKey::new(group_idx, param_idx)
     }
 
     /// Foreach (on-device, tensor-op) update path used when
@@ -250,7 +258,7 @@ impl<T: Float> Adam<T> {
                     // (whose closure cannot return `Result`); a fallible
                     // zeros / .to(device) here would otherwise have to
                     // panic.
-                    let next_step = match self.foreach_state.entry(key.clone()) {
+                    let next_step = match self.foreach_state.entry(key) {
                         Entry::Vacant(slot) => {
                             let exp_avg = zeros::<T>(param_t.shape())?.to(device)?;
                             let exp_avg_sq = zeros::<T>(param_t.shape())?.to(device)?;
@@ -273,6 +281,8 @@ impl<T: Float> Adam<T> {
                     // Read current moment tensors.
                     let exp_avg_old = self.foreach_state[&key].exp_avg.clone();
                     let exp_avg_sq_old = self.foreach_state[&key].exp_avg_sq.clone();
+                    // (lookups via `&ParamKey`, which is `Copy` — no
+                    // allocation cost vs. the legacy `&String` lookup.)
 
                     // exp_avg = beta1 * exp_avg + (1 - beta1) * grad
                     let beta1_t = scalar(cast::<f64, T>(beta1)?)?.to(device)?;
@@ -366,6 +376,8 @@ impl<T: Float> Adam<T> {
                             ),
                         }
                     })?;
+                    // `ParamKey: Display` (CL-1122) gives the same
+                    // `"g{}_p{}"` rendering as the legacy `String` key.
                     st.step_count = next_step;
                     st.exp_avg = exp_avg_new;
                     st.exp_avg_sq = exp_avg_sq_new;
@@ -426,31 +438,29 @@ impl<T: Float> Optimizer<T> for Adam<T> {
 
                     // Lazy-init GPU state. `or_insert_with` cannot propagate
                     // `Err` from a fallible allocation; use an explicit
-                    // Vacant/Occupied match so an OOM at first step
+                    // Entry::Vacant match so an OOM at first step
                     // bubbles out instead of being swallowed into `None` and
                     // silently routing to the CPU path.
                     //
-                    // First: ensure the slot exists (and is GPU-populated)
-                    // OR decide what to do when alloc fails. Doing this in
-                    // a separate pre-step keeps borrow scopes simple — the
-                    // compute branch later borrows `state` mutably without
-                    // overlapping the alloc-decision borrow.
-                    if !self.state.contains_key(&key) {
+                    // Doing this in a separate pre-step keeps borrow
+                    // scopes simple — the compute branch later borrows
+                    // `state` mutably without overlapping the
+                    // alloc-decision borrow. The Entry-API form also
+                    // satisfies clippy::map_entry, which would otherwise
+                    // flag the contains_key+insert pair.
+                    if let Entry::Vacant(slot) = self.state.entry(key) {
                         let gpu_m = backend.alloc_zeros(numel, std::mem::size_of::<f32>(), ordinal);
                         let gpu_v = backend.alloc_zeros(numel, std::mem::size_of::<f32>(), ordinal);
                         match (gpu_m, gpu_v) {
                             (Ok(m), Ok(v)) => {
-                                self.state.insert(
-                                    key.clone(),
-                                    AdamParamState {
-                                        step_count: 0,
-                                        exp_avg: Vec::new(),
-                                        exp_avg_sq: Vec::new(),
-                                        max_exp_avg_sq: None,
-                                        gpu_exp_avg: Some(m),
-                                        gpu_exp_avg_sq: Some(v),
-                                    },
-                                );
+                                slot.insert(AdamParamState {
+                                    step_count: 0,
+                                    exp_avg: Vec::new(),
+                                    exp_avg_sq: Vec::new(),
+                                    max_exp_avg_sq: None,
+                                    gpu_exp_avg: Some(m),
+                                    gpu_exp_avg_sq: Some(v),
+                                });
                             }
                             (Err(e), _) | (_, Err(e)) => {
                                 // Match PyTorch parity: GPU op failure is
@@ -691,6 +701,10 @@ impl<T: Float> Optimizer<T> for Adam<T> {
     fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
         for (key, pstate) in &self.state {
+            // CL-1122: render typed `ParamKey` back to the
+            // `"g{}_p{}"` wire format via Display so the on-disk
+            // checkpoint shape is unchanged.
+            let key_str: String = key.to_string();
             let mut entry = HashMap::new();
             entry.insert("step_count".to_string(), vec![pstate.step_count as f64]);
 
@@ -718,7 +732,7 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                             .collect();
                         entry.insert("exp_avg".to_string(), m_f64);
                         entry.insert("exp_avg_sq".to_string(), v_f64);
-                        out.insert(key.clone(), entry);
+                        out.insert(key_str, entry);
                         continue;
                     }
                 }
@@ -729,13 +743,17 @@ impl<T: Float> Optimizer<T> for Adam<T> {
             if let Some(max_sq) = &pstate.max_exp_avg_sq {
                 entry.insert("max_exp_avg_sq".to_string(), max_sq.clone());
             }
-            out.insert(key.clone(), entry);
+            out.insert(key_str, entry);
         }
         Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
         for (key, entry) in state {
+            // CL-1122: parse the on-disk `"g{}_p{}"` string back into a
+            // typed `ParamKey`. Invalid keys surface as `InvalidArgument`
+            // rather than silently inserting a corrupt entry.
+            let key: ParamKey = key.parse()?;
             let step_count = entry
                 .get("step_count")
                 .and_then(|v| v.first())
@@ -759,7 +777,7 @@ impl<T: Float> Optimizer<T> for Adam<T> {
             let max_exp_avg_sq = entry.get("max_exp_avg_sq").cloned();
 
             self.state.insert(
-                key.clone(),
+                key,
                 AdamParamState {
                     step_count,
                     exp_avg,
@@ -921,8 +939,9 @@ mod tests {
             "state dict should be non-empty after steps"
         );
 
-        // Verify the state contains expected keys.
-        let key = Adam::<f64>::param_key(0, 0);
+        // Verify the state contains expected keys (the typed key is
+        // rendered to `"g{}_p{}"` via Display for the on-disk format).
+        let key: String = Adam::<f64>::param_key(0, 0).to_string();
         assert!(saved.contains_key(&key), "expected key {key} in state dict");
 
         let entry = &saved[&key];
@@ -974,7 +993,7 @@ mod tests {
         let saved = opt
             .state_dict()
             .expect("adam amsgrad state_dict must succeed in test");
-        let key = Adam::<f64>::param_key(0, 0);
+        let key: String = Adam::<f64>::param_key(0, 0).to_string();
         assert!(saved[&key].contains_key("max_exp_avg_sq"));
 
         // The parameter should have moved towards zero (minimizing x^2).

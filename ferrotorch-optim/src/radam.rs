@@ -12,6 +12,7 @@
 //! CL-319
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
@@ -19,6 +20,7 @@ use ferrotorch_nn::Parameter;
 
 use crate::foreach_utils::f64_scalar_on;
 use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
+use crate::param_key::ParamKey;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -132,9 +134,11 @@ struct RAdamForeachState<T: Float> {
 pub struct RAdam<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: RAdamConfig,
-    state: HashMap<String, RAdamParamState>,
+    /// CL-1122: typed key replaces per-step `format!("g{}_p{}")` heap
+    /// allocation; checkpoint wire format unchanged via `Display`/`FromStr`.
+    state: HashMap<ParamKey, RAdamParamState>,
     /// Foreach (on-device) state. Used when `config.foreach == true`.
-    foreach_state: HashMap<String, RAdamForeachState<T>>,
+    foreach_state: HashMap<ParamKey, RAdamForeachState<T>>,
 }
 
 impl<T: Float> RAdam<T> {
@@ -150,9 +154,11 @@ impl<T: Float> RAdam<T> {
         }
     }
 
+    /// CL-1122: typed `ParamKey` replaces the legacy `String` key built
+    /// by `format!("g{}_p{}")` on every step.
     #[inline]
-    fn param_key(group_idx: usize, param_idx: usize) -> String {
-        format!("g{group_idx}_p{param_idx}")
+    fn param_key(group_idx: usize, param_idx: usize) -> ParamKey {
+        ParamKey::new(group_idx, param_idx)
     }
 
     /// Foreach (on-device, tensor-op) update path. CL-497
@@ -179,15 +185,15 @@ impl<T: Float> RAdam<T> {
                 let device = param_t.device();
                 let key = Self::param_key(gi, pi);
 
-                if !self.foreach_state.contains_key(&key) {
-                    self.foreach_state.insert(
-                        key.clone(),
-                        RAdamForeachState {
-                            step_count: 0,
-                            exp_avg: zeros::<T>(param_t.shape())?.to(device)?,
-                            exp_avg_sq: zeros::<T>(param_t.shape())?.to(device)?,
-                        },
-                    );
+                // `Entry::Vacant` (not `contains_key`+`insert`) so the
+                // fallible `zeros()?.to(device)?` propagate `Err`
+                // cleanly. clippy::map_entry.
+                if let Entry::Vacant(slot) = self.foreach_state.entry(key) {
+                    slot.insert(RAdamForeachState {
+                        step_count: 0,
+                        exp_avg: zeros::<T>(param_t.shape())?.to(device)?,
+                        exp_avg_sq: zeros::<T>(param_t.shape())?.to(device)?,
+                    });
                 }
 
                 no_grad(|| {
@@ -480,17 +486,21 @@ impl<T: Float> Optimizer<T> for RAdam<T> {
     fn state_dict(&self) -> FerrotorchResult<OptimizerState> {
         let mut out = OptimizerState::new();
         for (key, ps) in &self.state {
+            // CL-1122: render typed `ParamKey` to the legacy
+            // `"g{}_p{}"` wire format via Display.
             let mut entry = HashMap::new();
             entry.insert("step_count".to_string(), vec![ps.step_count as f64]);
             entry.insert("exp_avg".to_string(), ps.exp_avg.clone());
             entry.insert("exp_avg_sq".to_string(), ps.exp_avg_sq.clone());
-            out.insert(key.clone(), entry);
+            out.insert(key.to_string(), entry);
         }
         Ok(out)
     }
 
     fn load_state_dict(&mut self, state: &OptimizerState) -> FerrotorchResult<()> {
         for (key, entry) in state {
+            // CL-1122: parse `"g{}_p{}"` back into the typed key.
+            let key: ParamKey = key.parse()?;
             let step_count = entry
                 .get("step_count")
                 .and_then(|v| v.first())
@@ -512,7 +522,7 @@ impl<T: Float> Optimizer<T> for RAdam<T> {
             })?;
 
             self.state.insert(
-                key.clone(),
+                key,
                 RAdamParamState {
                     step_count,
                     exp_avg,
@@ -640,7 +650,7 @@ mod tests {
             .expect("radam state_dict must succeed in test");
         assert!(!saved.is_empty());
 
-        let key = RAdam::<f64>::param_key(0, 0);
+        let key: String = RAdam::<f64>::param_key(0, 0).to_string();
         assert_eq!(saved[&key]["step_count"][0] as u64, 3);
 
         let p2 = scalar_param(2.0);
