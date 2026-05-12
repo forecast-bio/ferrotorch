@@ -1001,6 +1001,50 @@ static MODELS: &[ModelInfo] = &[
         format: WeightsFormat::FerrotorchStateDict,
         num_parameters: 0,
     },
+    // #1170: jit-trace-parity-v1 — Phase G.4 ferrotorch-jit tracing +
+    // AoT-compile real-artifact parity fixture. A 2-layer MLP
+    // (`Linear(8 -> 16, bias=True) -> ReLU -> Linear(16 -> 4, bias=True)`)
+    // with deterministic weights (numpy RandomState(42) uniform draws,
+    // not the ferrotorch / torch default kaiming init so the pin is
+    // robust to upstream init drift). The ferrotorch-jit tracer
+    // supports only a flat IR taxonomy — `Linear`, elementwise unary +
+    // binary ops, matmul, the activation set, and shape ops (see
+    // `IrOpKind` in `ferrotorch-jit/src/graph.rs`). Conv2d /
+    // BatchNorm / LayerNorm are not yet representable in the IR, so
+    // ResNet-18 (the obvious next step after #1139) is *not* traceable
+    // and #1170 downscopes to the most complex pretrained model the
+    // tracer can actually capture today. The mirror ships
+    // `model.safetensors` with flat keys (`l1_weight`, `l1_bias`,
+    // `l2_weight`, `l2_bias`, all in PyTorch nn.Linear convention —
+    // weight: [out, in], bias: [out]) plus
+    // `_value_parity_{input,output}.bin` so the
+    // `scripts/verify_jit_inference.py` harness (and the
+    // `conformance_jit_parity` cargo test) can compare ferrotorch's
+    // eager / traced / AoT-compiled outputs against the frozen
+    // `torch==2.x` reference forward without re-running torch in CI.
+    //
+    // The 3-stage parity check (eager vs reference / traced vs eager /
+    // AoT-compiled vs eager) is the contract: tracing is a pure graph
+    // walk over the same autograd ops so traced vs eager is bit-tight
+    // (1e-5); AoT compile re-applies optimisation passes (constant
+    // folding, DCE, fusion, memory planning) on the graph then
+    // re-interprets it, which can re-order non-associative sums so the
+    // tolerance there is 1e-4. Eager vs reference is the float32-BLAS
+    // floor, also 1e-4. Companion files:
+    //   * `scripts/pin_pretrained_jit_fixtures.py`
+    //   * `scripts/verify_jit_inference.py`
+    //   * `ferrotorch-jit/examples/jit_trace_dump.rs`
+    //   * `ferrotorch-jit/tests/conformance_jit_parity.rs`
+    //
+    // 212 parameters total = (16*8 + 16) + (4*16 + 4).
+    ModelInfo {
+        name: "jit-trace-parity-v1",
+        description: "Phase G.4 ferrotorch-jit tracing + AoT-compile parity fixture: 2-layer MLP (Linear(8->16) -> ReLU -> Linear(16->4)) with deterministic numpy-seeded weights. Tolerances: eager-vs-reference max_abs<=1e-4 / cosine_sim>=0.99999, traced-vs-eager max_abs<=1e-5 (pure graph walk), compiled-vs-eager max_abs<=1e-4 (optimisation passes may reorder ops). Real-artifact baseline for ferrotorch-jit trace + compile parity vs torch eager (#1170).",
+        weights_url: "https://huggingface.co/ferrotorch/jit-trace-parity-v1/resolve/main/model.safetensors",
+        weights_sha256: "960a3828138faeffc7d9595c6bfa1c089c78103015ce3fda6aa7cdc1a3ba02cd",
+        format: WeightsFormat::SafeTensors,
+        num_parameters: 212,
+    },
 ];
 
 /// List all available pretrained models.

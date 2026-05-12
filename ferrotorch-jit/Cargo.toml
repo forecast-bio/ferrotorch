@@ -60,3 +60,13 @@ tempfile = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+# Real-artifact harness for tracing + AoT compilation parity (#1170).
+# The `jit_trace_dump` example loads a pinned MLP from
+# `ferrotorch/jit-trace-parity-v1`, runs eager / traced / compiled
+# forwards, and dumps each output for the python verifier.
+ferrotorch-hub = { workspace = true, features = ["http"] }
+ferrotorch-serialize = { workspace = true }
+
+[[example]]
+name = "jit_trace_dump"
+path = "examples/jit_trace_dump.rs"

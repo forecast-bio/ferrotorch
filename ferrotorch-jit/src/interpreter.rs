@@ -386,7 +386,28 @@ pub fn interpret_multi<T: Float>(
                 set_outputs(&mut values, &node.outputs, current);
             }
 
-            IrOpKind::FusedLinearActivation { .. } | IrOpKind::FusedAttention { .. } => {
+            // The pattern-fusion pass (`optimize::pattern_fuse`) rewrites
+            // `Linear -> Activation` chains as a single
+            // `FusedLinearActivation { activation }` node. The pass runs by
+            // default through `OptimizationConfig::default().operator_fusion`,
+            // which is the path `compile()` uses, so the interpreter must be
+            // able to execute it directly — otherwise every `compile()` call
+            // on a real MLP errors at forward time. We re-decompose into
+            // `linear_fused` + the recorded activation here (#1170 fix).
+            IrOpKind::FusedLinearActivation { activation } => {
+                let input = get_value(&values, node.inputs[0])?;
+                let weight = get_value(&values, node.inputs[1])?;
+                let bias = if node.inputs.len() > 2 {
+                    Some(get_value(&values, node.inputs[2])?)
+                } else {
+                    None
+                };
+                let linear_out = grad_linalg::linear_fused(input, weight, bias)?;
+                let result = apply_elementwise_op(&linear_out, activation)?;
+                set_outputs(&mut values, &node.outputs, result);
+            }
+
+            IrOpKind::FusedAttention { .. } => {
                 return Err(FerrotorchError::InvalidArgument {
                     message: format!(
                         "interpret: fused pattern op {:?} must be lowered before interpretation",
