@@ -42,6 +42,14 @@ use crate::{
 /// | Categorical | Categorical |
 /// | Normal | Uniform |
 /// | Uniform | Normal |
+/// | Laplace | Laplace |
+/// | Exponential | Exponential |
+/// | Gamma | Gamma |
+/// | Poisson | Poisson |
+/// | Gamma | Exponential |
+/// | Exponential | Gamma |
+///
+/// The same set is also reported by [`kl_supported_pair_count`].
 ///
 /// # Errors
 ///
@@ -62,6 +70,19 @@ where
 {
     kl_dispatch::<T>(p, q)
 }
+
+/// Number of `(P, Q)` distribution pairs for which [`kl_divergence`] has a
+/// closed-form formula registered. Kept in sync with the dispatcher in
+/// [`kl_dispatch`] and the supported-pairs doc table on [`kl_divergence`]
+/// (drift-checked by `tests::kl_doc_table_matches_dispatcher`).
+pub const fn kl_supported_pair_count() -> usize {
+    KL_SUPPORTED_PAIR_COUNT
+}
+
+/// Compile-time count of registered `(P, Q)` pairs. Update this when adding
+/// or removing a branch in [`kl_dispatch`] **and** the doc table on
+/// [`kl_divergence`] in lockstep; the drift test enforces the invariant.
+const KL_SUPPORTED_PAIR_COUNT: usize = 12;
 
 fn kl_dispatch<T: Float>(
     p: &dyn std::any::Any,
@@ -971,6 +992,93 @@ mod tests {
             "KL(Exp(1)||Gamma(1,1)) should be 0, got {}",
             kl.item().unwrap()
         );
+    }
+
+    // -- Drift prevention: doc table vs dispatcher ---------------------------
+
+    /// Guards against the failure mode in #1124, where the doc table on
+    /// `kl_divergence` listed 6 pairs while the dispatcher had grown to 12.
+    /// Parses this very source file and asserts:
+    ///   1. `KL_SUPPORTED_PAIR_COUNT` matches the public `kl_supported_pair_count()`.
+    ///   2. The supported-pairs doc table on `kl_divergence` has exactly that many rows.
+    ///   3. The dispatcher in `kl_dispatch` has exactly that many `downcast_ref` arms.
+    #[test]
+    fn kl_doc_table_matches_dispatcher() {
+        const SRC: &str = include_str!("kl.rs");
+        let expected = kl_supported_pair_count();
+        assert_eq!(
+            expected, KL_SUPPORTED_PAIR_COUNT,
+            "public accessor must mirror the internal constant"
+        );
+
+        // (1) Count rows of the markdown table inside the `kl_divergence` rustdoc:
+        // each data row begins with `/// |` and is not the header `| P | Q |`
+        // nor the separator `|---|---|`. The table block ends at the first
+        // blank doc line after we have started counting.
+        let table_rows = count_doc_table_rows(SRC);
+        assert_eq!(
+            table_rows, expected,
+            "doc-table rows ({table_rows}) on `kl_divergence` must equal \
+             KL_SUPPORTED_PAIR_COUNT ({expected}) — update both together"
+        );
+
+        // (2) Count dispatcher arms: each registered pair uses
+        // `p.downcast_ref::<...>()` exactly once. We count the occurrences of
+        // that fragment in the body of `fn kl_dispatch`.
+        let dispatch_arms = count_dispatcher_arms(SRC);
+        assert_eq!(
+            dispatch_arms, expected,
+            "dispatcher arms ({dispatch_arms}) in `kl_dispatch` must equal \
+             KL_SUPPORTED_PAIR_COUNT ({expected})"
+        );
+    }
+
+    fn count_doc_table_rows(src: &str) -> usize {
+        let mut in_table = false;
+        let mut rows = 0usize;
+        for raw in src.lines() {
+            let line = raw.trim_start();
+            // Find the start of the table: header row `| P | Q |`.
+            if !in_table {
+                if line.starts_with("///") && line.contains("| P | Q |") {
+                    in_table = true;
+                }
+                continue;
+            }
+            // Inside the table: stop at the first non-`///` line or a `///`
+            // line that no longer looks like a table row.
+            let Some(rest) = line.strip_prefix("///") else {
+                break;
+            };
+            let cell = rest.trim();
+            if !cell.starts_with('|') {
+                break;
+            }
+            // Skip the `|---|---|` separator row.
+            if cell.chars().all(|c| matches!(c, '|' | '-' | ' ')) {
+                continue;
+            }
+            rows += 1;
+        }
+        rows
+    }
+
+    fn count_dispatcher_arms(src: &str) -> usize {
+        // Slice the body of `fn kl_dispatch` so we don't accidentally count
+        // `downcast_ref` mentions elsewhere in the file (there are none today,
+        // but we want to stay robust against future helpers/tests).
+        let start = src
+            .find("fn kl_dispatch")
+            .expect("kl_dispatch must be defined in this file");
+        // End of body: the closing `}` of the function — heuristically the
+        // line beginning with `// -----` that follows it, or the next `fn `.
+        let tail = &src[start..];
+        let end = tail
+            .find("\n// ----------------------------------")
+            .unwrap_or(tail.len());
+        let body = &tail[..end];
+        // Each registered pair uses `p.downcast_ref::<...>()` exactly once.
+        body.matches("p.downcast_ref::<").count()
     }
 
     // -- ln_gamma numerical sanity -------------------------------------------
