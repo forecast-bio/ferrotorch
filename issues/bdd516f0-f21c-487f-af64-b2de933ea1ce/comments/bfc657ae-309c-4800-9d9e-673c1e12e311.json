@@ -1,0 +1,10 @@
+{
+  "uuid": "bfc657ae-309c-4800-9d9e-673c1e12e311",
+  "issue_uuid": "bdd516f0-f21c-487f-af64-b2de933ea1ce",
+  "author": "y4rr",
+  "content": "Approach: (1) write src/scheduler.rs with DDIMScheduler. (2) src/pipeline.rs orchestrating CLIP encoder + UNet + VAE + scheduler with CFG. (3) pin_pretrained_sd_pipeline.py uploads to ferrotorch/sd-v1-5-generation-trajectory (cond/uncond text embeddings, init_latent, per-step records, final image). (4) examples/sd_pipeline_dump.rs reads init_latent from mirror, runs CFG generation, dumps intermediate fixtures. (5) verify_sd_pipeline_inference.py per-stage comparisons. (6) tests/conformance_sd_pipeline.rs ignored-gated wrapper. (7) registry pin.",
+  "created_at": "2026-05-12T05:33:13.629656011Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA40n20O0+5998KUd7DOi4DfORYqqWfDit5Vh8mrocDYu90FMiQrgVFGgp5ai5EHuL8TDhEOTTzlFWHN5J6DjQDA=="
+}
