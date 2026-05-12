@@ -1,0 +1,10 @@
+{
+  "uuid": "fed3ff10-99f6-462d-b6ff-0cd47c1f60a9",
+  "issue_uuid": "acf160fb-242a-498b-910c-89697a41333f",
+  "author": "y4rr",
+  "content": "Implementing closed-form TransformedDistribution::entropy: add constant_entropy_contribution() trait hook (AffineTransform returns Some(log|scale|), ComposeTransform sums children), add is_exp_transform() hook for ExpTransform special case, and rewrite TransformedDistribution::entropy() to dispatch on empty / all-constant / single-Exp / precise-error paths. Add discriminating fixture transformed_normal_affine to pin script + verify harness + Rust dump for parity with torch's analytic equivalent Normal(2,3).entropy().",
+  "created_at": "2026-05-12T17:39:29.278984824Z",
+  "kind": "plan",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADgUdIwnYHnKXtdcpgoPMDBfGYO8jj/TH+xF29MYVGH289Cm+alceG3dwNkPeM/keez9RIsHjKQOXLNk3czSlCQ=="
+}
