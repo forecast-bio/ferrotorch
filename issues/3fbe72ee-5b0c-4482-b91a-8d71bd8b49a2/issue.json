@@ -2,11 +2,12 @@
   "uuid": "3fbe72ee-5b0c-4482-b91a-8d71bd8b49a2",
   "display_id": 1165,
   "title": "ferrotorch-diffusion GPU CLIP text encoder forward path",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-12T07:17:36.042114434Z",
-  "updated_at": "2026-05-12T07:17:37.575301374Z",
+  "updated_at": "2026-05-12T07:26:05.604974743Z",
+  "closed_at": "2026-05-12T07:26:05.604974743Z",
   "labels": [
     "gpu"
   ]
