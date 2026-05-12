@@ -1,0 +1,10 @@
+{
+  "uuid": "67d24449-0155-4a83-8eb0-509347a027b5",
+  "issue_uuid": "773b4e9f-5144-414b-9d87-7e6db697f169",
+  "author": "y4rr",
+  "content": "ferrotorch-rl crate added (27th workspace member). MlpPolicy: extractor (Linear(4→64) + Tanh + Linear(64→64) + Tanh, separate pi/vf trunks) + action_net (Linear(64→2) for discrete action logits) + value_net (Linear(64→1)). PASS bit-level: action_logits max_abs=9.5e-7, value max_abs=7.6e-6, cosine_sim=1.0 both. Pinned to ferrotorch/ppo-cartpole-v1 (SHA e6c81ac2c102). 8 lib tests.",
+  "created_at": "2026-05-12T00:08:25.844488242Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvTVHfIekQA38YDn+6sHtkaF11qZEARcBGSt5cnSr0rLqsG7vmFvYEtM7hVnjZ9nv3nU46C0I/RNPUncFYEbbAw=="
+}
