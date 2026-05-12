@@ -111,6 +111,63 @@ impl<T: GpuFloat> GpuTensor<T> {
     pub fn cpu(&self) -> FerrotorchResult<Tensor<T>> {
         tensor_to_cpu(self)
     }
+
+    /// Raw CUDA device pointer to the underlying data (as a `u64`
+    /// `CUdeviceptr`).
+    ///
+    /// Used by FFI consumers that need to pass the buffer to a C ABI —
+    /// e.g. NCCL collectives in [`ferrotorch-distributed`]. The pointer
+    /// is valid for the lifetime of `&self`; callers must ensure the
+    /// tensor outlives any asynchronous work enqueued against the
+    /// pointer (NCCL ops are async on the supplied stream — synchronise
+    /// before reading via [`NcclBackend::synchronize`]).
+    ///
+    /// Only available when the `cuda` Cargo feature is enabled.
+    #[cfg(feature = "cuda")]
+    #[inline]
+    pub fn cu_device_ptr(&self) -> u64 {
+        use cudarc::driver::DevicePtr;
+        let stream = self.device.stream();
+        // The `_record` is the cudarc lifetime guard that keeps the
+        // slice marked busy on `stream`. We drop it immediately — the
+        // borrow of `&self` already keeps the underlying allocation
+        // alive for the caller's use of the returned pointer, and NCCL
+        // runs on its own stream that the caller separately synchronises.
+        let (ptr, _record) = self.buffer.inner().device_ptr(&stream);
+        ptr
+    }
+
+    /// Deep-clone this tensor on the device (D2D copy, no PCIe transit).
+    ///
+    /// Allocates a fresh device buffer via the device's current stream and
+    /// copies the contents element-wise on-device. The returned tensor
+    /// shares the same shape and device as `self` but owns its data
+    /// independently. Used by collective operations that need an output
+    /// buffer distinct from the input (e.g. allreduce returns a new
+    /// tensor whereas NCCL operates in-place).
+    ///
+    /// Only available when the `cuda` Cargo feature is enabled — the
+    /// non-cuda stub does not have a backing allocator.
+    #[cfg(feature = "cuda")]
+    pub fn try_clone(&self) -> GpuResult<Self> {
+        let stream = self.device.stream();
+        let cloned_slice = stream.clone_dtod(self.buffer.inner())?;
+        // The cloned slice is freshly allocated via `stream.alloc` and is
+        // NOT pool-managed; `pool_fn: None` ensures its `Drop` returns
+        // it to the CUDA driver (`cuMemFreeAsync`) rather than the pool.
+        let buffer = CudaBuffer {
+            data: Some(cloned_slice),
+            len: self.buffer.len(),
+            alloc_len: self.buffer.len(),
+            device_ordinal: self.device.ordinal(),
+            pool_fn: None,
+        };
+        Ok(Self {
+            buffer,
+            shape: self.shape.clone(),
+            device: self.device.clone(),
+        })
+    }
 }
 
 impl<T: GpuFloat> std::fmt::Debug for GpuTensor<T> {

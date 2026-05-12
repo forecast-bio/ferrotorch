@@ -57,6 +57,22 @@ pub trait Backend: Send + Sync {
 
     /// Block until every rank has reached this barrier.
     fn barrier(&self) -> FerrotorchResult<()>;
+
+    /// Downcast hook for the NCCL fast path.
+    ///
+    /// Returns `Some(&NcclBackend)` if this backend *is* an
+    /// [`NcclBackend`](crate::nccl_backend::NcclBackend); `None` otherwise.
+    /// The default implementation returns `None`.
+    ///
+    /// [`gpu_collective::gpu_allreduce`](crate::gpu_collective::gpu_allreduce)
+    /// and [`gpu_collective::gpu_broadcast`](crate::gpu_collective::gpu_broadcast)
+    /// query this method to decide between the NCCL GPU-native fast path
+    /// and the host round-trip fallback. Only compiled under the `nccl`
+    /// feature gate (which gates the existence of [`NcclBackend`]).
+    #[cfg(feature = "nccl")]
+    fn as_nccl_backend(&self) -> Option<&crate::nccl_backend::NcclBackend> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------

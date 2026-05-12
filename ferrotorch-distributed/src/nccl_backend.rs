@@ -431,6 +431,10 @@ impl Backend for NcclBackend {
         }.into())
     }
 
+    fn as_nccl_backend(&self) -> Option<&NcclBackend> {
+        Some(self)
+    }
+
     fn barrier(&self) -> FerrotorchResult<()> {
         // NCCL barrier = all-reduce of a single dummy element.
         // We use the raw allreduce with a 1-byte GPU buffer.
