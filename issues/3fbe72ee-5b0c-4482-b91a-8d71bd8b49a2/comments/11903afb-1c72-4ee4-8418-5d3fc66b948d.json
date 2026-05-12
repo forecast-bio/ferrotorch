@@ -1,0 +1,10 @@
+{
+  "uuid": "11903afb-1c72-4ee4-8418-5d3fc66b948d",
+  "issue_uuid": "3fbe72ee-5b0c-4482-b91a-8d71bd8b49a2",
+  "author": "y4rr",
+  "content": "GpuClipTextEncoder closure: 12-layer Transformer (hidden=768, 12 heads, head_dim=64), causal attention mask, QuickGELU MLP, learned position embeddings (77 positions), final LayerNorm. Reused existing ferrotorch-gpu primitives (no new kernels). PASS: cosine_sim=0.999973, max_abs=0.084 (under 0.5 threshold). 0 dropped keys. Larger max_abs than VAE (2.6e-5) because softmax across 77×12×12 accumulates more f32 noise than conv-only paths.",
+  "created_at": "2026-05-12T07:25:40.026051748Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAStQgRPfwpXCHCFzEOKi4FnbFzWl5poe8VKirWGG8gFOeDsw1reCnf+s+PxKan7tiR6fuQjYerP1y7+v2IINGBA=="
+}
