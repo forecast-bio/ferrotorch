@@ -1,0 +1,10 @@
+{
+  "uuid": "f20a6b7c-6d97-4ef5-a7eb-7d12a7f32211",
+  "issue_uuid": "11025fc4-68fa-4477-a400-effec2a18161",
+  "author": "y4rr",
+  "content": "Result: 5/5 PASS. PCA cosine_sim per PC=1.0 max_abs=0.0; StandardScaler max_abs=0.0 (cap 1e-6); OneHotEncoder exact; KFold 5 folds size=10 union=[0,50); train_test_split 80/20 union=[0,100). Pinned to HF ferrotorch/ml-sklearn-parity-v1 (commit 05e4c8c5735f, 22 files), bundle SHA baafb9b5a10669cad13c39320923f9fa5482291dac8ab2395503390bc4bc4a3e in registry.rs. ferrotorch-ml lib 57 tests pass, vision 452 floor unchanged, workspace build clean, clippy clean. No bugs surfaced — ferrolearn matches sklearn bit-exactly on canonical tabular ops.",
+  "created_at": "2026-05-12T00:22:35.332522237Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAJRsWVfOgAJBUssOU+kiYEsqNFhL12TnA02h35hQ7eG+Y5SnIzDXGWQOVIcqICkasFfDKa331Ls8iGkqc/qtMDw=="
+}
