@@ -12,7 +12,7 @@
 //! All parameter updates execute inside `no_grad()` so the optimizer step is
 //! never recorded in the autograd graph.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use ferrotorch_core::creation::scalar;
 use ferrotorch_core::grad_fns::arithmetic::{add, mul, neg, sub};
@@ -152,16 +152,22 @@ impl LbfgsConfig {
 /// CL-1105 Pattern B: history slots and prev-step caches are 1-D
 /// device-resident [`Tensor<T>`] instead of flat `Vec<f64>` so the two-loop
 /// recursion runs entirely on the parameter's device.
+///
+/// CL-1125: the history buffers are [`VecDeque`] (not `Vec`) so eviction of
+/// the oldest entry when `history_size` is reached is O(1) (`pop_front`)
+/// instead of `Vec::remove(0)`'s O(history_size) memmove of every later
+/// element. Random indexed reads (`[i]`) and `iter()` work the same way
+/// on `VecDeque`, so callers are unaffected.
 #[derive(Debug)]
 struct LbfgsState<T: Float> {
     /// Parameter differences: s_k = x_{k+1} - x_k. 1-D tensors, on device.
-    s_history: Vec<Tensor<T>>,
+    s_history: VecDeque<Tensor<T>>,
     /// Gradient differences: y_k = g_{k+1} - g_k. 1-D tensors, on device.
-    y_history: Vec<Tensor<T>>,
+    y_history: VecDeque<Tensor<T>>,
     /// Cached 1 / (y_k . s_k) for each curvature pair. Stored as f64 so the
     /// two-loop recursion's gamma/alpha/beta scalars retain precision when
     /// T = f32.
-    rho_history: Vec<f64>,
+    rho_history: VecDeque<f64>,
     /// Previous flat parameter vector (needed to compute s_k).
     prev_flat_params: Option<Tensor<T>>,
     /// Previous flat gradient vector (needed to compute y_k).
@@ -173,9 +179,9 @@ struct LbfgsState<T: Float> {
 impl<T: Float> LbfgsState<T> {
     fn new() -> Self {
         Self {
-            s_history: Vec::new(),
-            y_history: Vec::new(),
-            rho_history: Vec::new(),
+            s_history: VecDeque::new(),
+            y_history: VecDeque::new(),
+            rho_history: VecDeque::new(),
             prev_flat_params: None,
             prev_flat_grad: None,
             n_iter: 0,
@@ -420,15 +426,21 @@ impl<T: Float> Lbfgs<T> {
         let rho = 1.0 / ys;
 
         // If we've reached the history limit, evict the oldest entry.
+        //
+        // CL-1125: `VecDeque::pop_front` is O(1); the previous
+        // `Vec::remove(0)` was O(history_size) per call because every later
+        // element had to shift down. With `history_size = 10` (the typical
+        // L-BFGS setting) that is up to 10 memmove copies per step that
+        // are now eliminated.
         if self.state.s_history.len() >= self.config.history_size {
-            self.state.s_history.remove(0);
-            self.state.y_history.remove(0);
-            self.state.rho_history.remove(0);
+            self.state.s_history.pop_front();
+            self.state.y_history.pop_front();
+            self.state.rho_history.pop_front();
         }
 
-        self.state.s_history.push(s);
-        self.state.y_history.push(y);
-        self.state.rho_history.push(rho);
+        self.state.s_history.push_back(s);
+        self.state.y_history.push_back(y);
+        self.state.rho_history.push_back(rho);
         Ok(())
     }
 }
@@ -896,9 +908,9 @@ impl<T: Float> Optimizer<T> for Lbfgs<T> {
             let y_tensor =
                 Tensor::from_storage(TensorStorage::cpu(y_t), vec![y_len], false)?;
 
-            self.state.s_history.push(s_tensor);
-            self.state.y_history.push(y_tensor);
-            self.state.rho_history.push(rho);
+            self.state.s_history.push_back(s_tensor);
+            self.state.y_history.push_back(y_tensor);
+            self.state.rho_history.push_back(rho);
         }
 
         // Load previous params/grad if present.

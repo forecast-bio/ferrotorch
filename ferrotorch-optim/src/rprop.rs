@@ -35,7 +35,9 @@ use ferrotorch_nn::Parameter;
 // round-tripping to CPU. Lift this when ferrotorch-core gains
 // device-resident `sign` + `where_bt`.
 
-use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
+use crate::optimizer::{
+    Optimizer, OptimizerState, ParamGroup, fill_f64_workspace, resize_typed_workspace,
+};
 
 // ---------------------------------------------------------------------------
 // Config
@@ -121,6 +123,12 @@ pub struct Rprop<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: RpropConfig,
     state: HashMap<String, RpropParamState>,
+    /// CL-1125: reusable per-step workspaces for the CPU step path. See
+    /// `Adam`'s field docs for the motivation; Rprop suffers the same
+    /// per-step `Vec<f64>` allocation pattern.
+    param_workspace: Vec<f64>,
+    grad_workspace: Vec<f64>,
+    new_values_workspace: Vec<T>,
 }
 
 impl<T: Float> Rprop<T> {
@@ -131,6 +139,9 @@ impl<T: Float> Rprop<T> {
             param_groups: vec![group],
             config,
             state: HashMap::new(),
+            param_workspace: Vec::new(),
+            grad_workspace: Vec::new(),
+            new_values_workspace: Vec::new(),
         }
     }
 
@@ -167,19 +178,17 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
                 }
 
                 let key = Self::param_key(gi, pi);
+                let numel = tensor.numel();
 
-                let param_data: Vec<f64> = tensor
-                    .data_vec()?
-                    .iter()
-                    .map(|&v| cast::<T, f64>(v))
-                    .collect::<FerrotorchResult<Vec<f64>>>()?;
-                let grad_data: Vec<f64> = grad_tensor
-                    .data_vec()?
-                    .iter()
-                    .map(|&v| cast::<T, f64>(v))
-                    .collect::<FerrotorchResult<Vec<f64>>>()?;
+                // CL-1125: clone the parameter tensor handle (Arc clone)
+                // to end the borrow on `self.param_groups` before we touch
+                // the disjoint workspace / state fields of `self`.
+                let tensor_handle = tensor.clone();
+                let grad_handle = grad_tensor.clone();
 
-                let numel = param_data.len();
+                // CL-1125: reuse optimizer-owned `Vec<f64>` workspaces.
+                fill_f64_workspace(&mut self.param_workspace, &tensor_handle)?;
+                fill_f64_workspace(&mut self.grad_workspace, &grad_handle)?;
 
                 let state = self.state.entry(key).or_insert_with(|| RpropParamState {
                     step_count: 0,
@@ -189,49 +198,49 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
 
                 state.step_count += 1;
 
-                let new_values: Vec<T> = (0..numel)
-                    .map(|i| {
-                        let g = grad_data[i];
-                        let prev = state.prev_grad[i];
+                // CL-1125: reuse the typed output workspace.
+                resize_typed_workspace(&mut self.new_values_workspace, numel);
+                for (i, slot) in self.new_values_workspace.iter_mut().enumerate() {
+                    let g = self.grad_workspace[i];
+                    let prev = state.prev_grad[i];
 
-                        // Compute sign of the product of current and previous gradient.
-                        let sign_product = if (g * prev) > 0.0 {
-                            1
-                        } else if (g * prev) < 0.0 {
-                            -1
-                        } else {
-                            0
-                        };
+                    // Compute sign of the product of current and previous gradient.
+                    let sign_product = if (g * prev) > 0.0 {
+                        1
+                    } else if (g * prev) < 0.0 {
+                        -1
+                    } else {
+                        0
+                    };
 
-                        // Adapt step size.
-                        if sign_product > 0 {
-                            state.step_size[i] = (state.step_size[i] * eta_plus).min(step_max);
-                        } else if sign_product < 0 {
-                            state.step_size[i] = (state.step_size[i] * eta_minus).max(step_min);
-                        }
-                        // sign_product == 0: step size unchanged.
+                    // Adapt step size.
+                    if sign_product > 0 {
+                        state.step_size[i] = (state.step_size[i] * eta_plus).min(step_max);
+                    } else if sign_product < 0 {
+                        state.step_size[i] = (state.step_size[i] * eta_minus).max(step_min);
+                    }
+                    // sign_product == 0: step size unchanged.
 
-                        // For sign reversal, zero out the gradient so the
-                        // parameter is not updated in the wrong direction,
-                        // and save zero as the previous gradient.
-                        let effective_grad = if sign_product < 0 { 0.0 } else { g };
+                    // For sign reversal, zero out the gradient so the
+                    // parameter is not updated in the wrong direction,
+                    // and save zero as the previous gradient.
+                    let effective_grad = if sign_product < 0 { 0.0 } else { g };
 
-                        // Update parameter: p = p - sign(g) * step_size.
-                        let sign_g = if effective_grad > 0.0 {
-                            1.0
-                        } else if effective_grad < 0.0 {
-                            -1.0
-                        } else {
-                            0.0
-                        };
+                    // Update parameter: p = p - sign(g) * step_size.
+                    let sign_g = if effective_grad > 0.0 {
+                        1.0
+                    } else if effective_grad < 0.0 {
+                        -1.0
+                    } else {
+                        0.0
+                    };
 
-                        // Save current gradient (zeroed if reversed) for next step.
-                        state.prev_grad[i] = effective_grad;
+                    // Save current gradient (zeroed if reversed) for next step.
+                    state.prev_grad[i] = effective_grad;
 
-                        let updated = param_data[i] - sign_g * state.step_size[i];
-                        cast::<f64, T>(updated)
-                    })
-                    .collect::<FerrotorchResult<Vec<T>>>()?;
+                    let updated = self.param_workspace[i] - sign_g * state.step_size[i];
+                    *slot = cast::<f64, T>(updated)?;
+                }
 
                 // SAFETY: `update_data` writes through `Arc::as_ptr` and
                 // requires sole-writer access to the parameter's storage.
@@ -241,12 +250,11 @@ impl<T: Float> Optimizer<T> for Rprop<T> {
                 //  2. The `no_grad` closure suppresses `grad_fn` recording,
                 //     so no autograd node will clone the storage Arc as
                 //     part of this write.
-                //  3. The earlier `param.data_vec()` and `grad.data_vec()`
-                //     reads returned owned `Vec<T>` / `Vec<f64>` values now
-                //     consumed by the per-element update loop. `new_values`
-                //     is a fresh owned `Vec<T>` independent of the
-                //     parameter's storage.
-                no_grad(|| unsafe { param.tensor().update_data(&new_values) })?;
+                //  3. All parameter/gradient reads (`param_workspace`,
+                //     `grad_workspace`) are owned f64 buffers independent
+                //     of the parameter's storage. `new_values_workspace` is
+                //     a fresh owned `Vec<T>` likewise independent.
+                no_grad(|| unsafe { tensor_handle.update_data(&self.new_values_workspace) })?;
             }
         }
 

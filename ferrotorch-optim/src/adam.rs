@@ -16,7 +16,9 @@ use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad}
 use ferrotorch_nn::Parameter;
 
 use crate::foreach_utils::elemwise_max;
-use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
+use crate::optimizer::{
+    Optimizer, OptimizerState, ParamGroup, fill_f64_workspace, resize_typed_workspace,
+};
 
 // ---------------------------------------------------------------------------
 // AdamConfig
@@ -168,6 +170,16 @@ pub struct Adam<T: Float> {
     /// Foreach (on-device) per-parameter state. Used when
     /// `config.foreach == true`.
     foreach_state: HashMap<String, AdamForeachState<T>>,
+    /// CL-1125: reusable per-step workspaces for the legacy CPU `step` path.
+    ///
+    /// Without these, each call to [`Optimizer::step`] allocated two fresh
+    /// `Vec<f64>` (`param_data`, `grad_data`) and one fresh `Vec<T>`
+    /// (`new_values`) of full parameter `numel`. For a 7B-param model that
+    /// is ~28 GB of transient allocation per step. Reusing optimizer-owned
+    /// buffers drops the steady-state amortized allocation to zero.
+    param_workspace: Vec<f64>,
+    grad_workspace: Vec<f64>,
+    new_values_workspace: Vec<T>,
 }
 
 impl<T: Float> Adam<T> {
@@ -181,6 +193,9 @@ impl<T: Float> Adam<T> {
             config,
             state: HashMap::new(),
             foreach_state: HashMap::new(),
+            param_workspace: Vec::new(),
+            grad_workspace: Vec::new(),
+            new_values_workspace: Vec::new(),
         }
     }
 
@@ -523,16 +538,24 @@ impl<T: Float> Optimizer<T> for Adam<T> {
 
                 // ---- CPU path (or f64 / AMSGrad / maximize) ----
 
-                let param_data: Vec<f64> = tensor
-                    .data_vec()?
-                    .iter()
-                    .map(|&v| cast::<T, f64>(v))
-                    .collect::<FerrotorchResult<Vec<f64>>>()?;
-                let mut grad_data: Vec<f64> = grad_tensor
-                    .data_vec()?
-                    .iter()
-                    .map(|&v| cast::<T, f64>(v))
-                    .collect::<FerrotorchResult<Vec<f64>>>()?;
+                // CL-1125: clone the parameter tensor handle (cheap — just
+                // an Arc clone) so the borrow on `self.param_groups` ends
+                // here. The disjoint borrows of `self.param_workspace`,
+                // `self.grad_workspace`, `self.state`, and
+                // `self.new_values_workspace` below are then visible to the
+                // borrow checker.
+                let tensor_handle = tensor.clone();
+                let grad_handle = grad_tensor.clone();
+
+                // CL-1125: reuse optimizer-owned `Vec<f64>` workspaces instead
+                // of allocating two fresh full-numel `Vec<f64>`s per step.
+                // For large models this is the difference between ~28 GB of
+                // transient allocation per step (7B params, two f64 workspaces)
+                // and ~0 once the buffers are warmed.
+                fill_f64_workspace(&mut self.param_workspace, &tensor_handle)?;
+                fill_f64_workspace(&mut self.grad_workspace, &grad_handle)?;
+                let param_data: &[f64] = &self.param_workspace;
+                let grad_data: &mut [f64] = &mut self.grad_workspace;
 
                 // Maximize: negate gradient. CL-321
                 if config.maximize {
@@ -589,20 +612,21 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                     }
                 }
 
-                let new_values: Vec<T> = (0..numel)
-                    .map(|i| {
-                        let corrected_avg = state.exp_avg[i] / bc1;
-                        let denom = if config.amsgrad {
-                            let max_sq = state.max_exp_avg_sq.as_ref().unwrap();
-                            (max_sq[i] / bc2).sqrt() + config.eps
-                        } else {
-                            let corrected_sq = state.exp_avg_sq[i] / bc2;
-                            corrected_sq.sqrt() + config.eps
-                        };
-                        let updated = param_data[i] - group_lr * corrected_avg / denom;
-                        cast::<f64, T>(updated)
-                    })
-                    .collect::<FerrotorchResult<Vec<T>>>()?;
+                // CL-1125: reuse `new_values_workspace` instead of allocating
+                // a fresh `Vec<T>` of full numel per step.
+                resize_typed_workspace(&mut self.new_values_workspace, numel);
+                for (i, slot) in self.new_values_workspace.iter_mut().enumerate() {
+                    let corrected_avg = state.exp_avg[i] / bc1;
+                    let denom = if config.amsgrad {
+                        let max_sq = state.max_exp_avg_sq.as_ref().unwrap();
+                        (max_sq[i] / bc2).sqrt() + config.eps
+                    } else {
+                        let corrected_sq = state.exp_avg_sq[i] / bc2;
+                        corrected_sq.sqrt() + config.eps
+                    };
+                    let updated = self.param_workspace[i] - group_lr * corrected_avg / denom;
+                    *slot = cast::<f64, T>(updated)?;
+                }
 
                 no_grad(|| {
                     // SAFETY: `update_data` requires exclusive access to the
@@ -614,14 +638,15 @@ impl<T: Float> Optimizer<T> for Adam<T> {
                     //   2. We are inside `no_grad()` — no autograd graph
                     //      is being constructed, so no `grad_fn` is taking
                     //      a parallel `Arc` clone of this storage.
-                    //   3. All reads of the parameter's data
-                    //      (`param_data` above) and gradient (`grad_data`)
-                    //      have already completed and were copied into
-                    //      owned `Vec<f64>` workspaces — there is no live
-                    //      `&[T]` into the storage at the call site.
-                    //   4. `new_values.len() == numel == tensor.numel()` so
-                    //      the inner length check passes.
-                    unsafe { param.tensor().update_data(&new_values) }
+                    //   3. All reads of the parameter's data and gradient
+                    //      have already completed (cached in
+                    //      `param_workspace` / `grad_workspace`) — there is
+                    //      no live `&[T]` into the storage at the call
+                    //      site.
+                    //   4. `new_values_workspace.len() == numel ==
+                    //      tensor.numel()` so the inner length check
+                    //      passes.
+                    unsafe { tensor_handle.update_data(&self.new_values_workspace) }
                 })?;
             }
         }

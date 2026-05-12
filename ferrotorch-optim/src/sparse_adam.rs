@@ -12,7 +12,7 @@ use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
-use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
+use crate::optimizer::{Optimizer, OptimizerState, ParamGroup, fill_t_workspace};
 
 /// Hyperparameters for the SparseAdam optimizer.
 #[derive(Debug, Clone, Copy)]
@@ -82,6 +82,13 @@ pub struct SparseAdam<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: SparseAdamConfig,
     state: HashMap<String, SparseAdamState>,
+    /// CL-1125: reusable per-step workspaces for the typed param/grad
+    /// reads. SparseAdam is CPU-only (CUDA returns
+    /// `NotImplementedOnCuda`); the param buffer is read, mutated
+    /// in-place at non-zero gradient indices, then handed to
+    /// `update_data`, so we reuse a single `Vec<T>` across steps.
+    param_workspace: Vec<T>,
+    grad_workspace: Vec<T>,
 }
 
 impl<T: Float> SparseAdam<T> {
@@ -92,6 +99,8 @@ impl<T: Float> SparseAdam<T> {
             param_groups: vec![group],
             config,
             state: HashMap::new(),
+            param_workspace: Vec::new(),
+            grad_workspace: Vec::new(),
         }
     }
 
@@ -121,9 +130,20 @@ impl<T: Float> Optimizer<T> for SparseAdam<T> {
                     return Err(FerrotorchError::NotImplementedOnCuda { op: "SparseAdam" });
                 }
 
-                let grad_data = grad_tensor.data_vec()?;
                 let numel = tensor.numel();
                 let key = Self::param_key(gi, pi);
+
+                // CL-1125: clone the parameter tensor handle (Arc clone)
+                // to release the borrow on `self.param_groups` before
+                // touching `self.param_workspace` / `self.grad_workspace`
+                // / `self.state`.
+                let tensor_handle = tensor.clone();
+                let grad_handle = grad_tensor.clone();
+
+                // CL-1125: reuse typed workspaces instead of allocating
+                // two fresh `Vec<T>`s per step.
+                fill_t_workspace(&mut self.grad_workspace, &grad_handle)?;
+                fill_t_workspace(&mut self.param_workspace, &tensor_handle)?;
 
                 let state = self.state.entry(key).or_insert_with(|| SparseAdamState {
                     step_count: 0,
@@ -140,10 +160,9 @@ impl<T: Float> Optimizer<T> for SparseAdam<T> {
 
                 // Update only non-zero gradient entries.
                 no_grad(|| -> FerrotorchResult<()> {
-                    let mut param_data = tensor.data_vec()?;
-
                     for i in 0..numel {
-                        let g = num_traits::ToPrimitive::to_f64(&grad_data[i]).unwrap();
+                        let g =
+                            num_traits::ToPrimitive::to_f64(&self.grad_workspace[i]).unwrap();
                         if g == 0.0 {
                             continue; // Skip zero gradients — this is the "sparse" part.
                         }
@@ -158,8 +177,8 @@ impl<T: Float> Optimizer<T> for SparseAdam<T> {
 
                         // Parameter update.
                         let update = lr * m_hat / (v_hat.sqrt() + eps);
-                        let p = cast::<T, f64>(param_data[i])?;
-                        param_data[i] = cast::<f64, T>(p - update)?;
+                        let p = cast::<T, f64>(self.param_workspace[i])?;
+                        self.param_workspace[i] = cast::<f64, T>(p - update)?;
                     }
 
                     // SAFETY: `update_data` mutates the parameter's storage
@@ -172,14 +191,12 @@ impl<T: Float> Optimizer<T> for SparseAdam<T> {
                     //     `grad_fn` will retain a clone of the storage Arc.
                     //  3. SparseAdam refuses to run on CUDA tensors (early
                     //     return at line 97), so the storage is CPU-only;
-                    //     the only handle into it that this iteration ever
-                    //     held was `tensor.data_vec()` returning the owned
-                    //     `Vec<T>` `param_data`, and that owned `Vec` is
-                    //     what we now write back. `tensor()` itself returns
-                    //     `&Tensor<T>` borrowed from `param`, but no
-                    //     `&[T]` / `&mut [T]` slice into the storage is
-                    //     live during the call.
-                    unsafe { param.tensor().update_data(&param_data)? };
+                    //     no live `&[T]` / `&mut [T]` slice into the
+                    //     storage is held — `param_workspace` is an owned
+                    //     `Vec<T>` field on the optimiser, populated above
+                    //     via `fill_t_workspace`, so its buffer is
+                    //     allocator-independent of the parameter storage.
+                    unsafe { tensor_handle.update_data(&self.param_workspace)? };
                     Ok(())
                 })?;
             }

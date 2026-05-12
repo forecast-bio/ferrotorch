@@ -16,7 +16,10 @@ use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, no_grad};
 use ferrotorch_nn::Parameter;
 
-use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
+use crate::optimizer::{
+    Optimizer, OptimizerState, ParamGroup, fill_t_workspace, resize_f64_workspace,
+    resize_typed_workspace,
+};
 
 /// Hyperparameters for the Adafactor optimizer.
 #[derive(Debug, Clone, Copy)]
@@ -138,6 +141,22 @@ pub struct Adafactor<T: Float> {
     param_groups: Vec<ParamGroup<T>>,
     config: AdafactorConfig,
     state: HashMap<String, AdafactorState>,
+    /// CL-1125: reusable per-step workspaces. Without these, every step
+    /// heap-allocated:
+    ///
+    /// * `grad_data: Vec<T>`   — full numel
+    /// * `param_data: Vec<T>`  — full numel
+    /// * `new_param: Vec<T>`   — full numel (cloned from `param_data`)
+    /// * `grad_sq:   Vec<f64>` — full numel
+    ///
+    /// For a 7B-param model that is roughly 60 GB of transient
+    /// allocation per `step()`. The workspaces are pre-allocated and
+    /// reused once the optimizer has been warmed to the largest
+    /// parameter it sees.
+    grad_workspace: Vec<T>,
+    param_workspace: Vec<T>,
+    new_param_workspace: Vec<T>,
+    grad_sq_workspace: Vec<f64>,
 }
 
 impl<T: Float> Adafactor<T> {
@@ -149,6 +168,10 @@ impl<T: Float> Adafactor<T> {
             param_groups: vec![group],
             config,
             state: HashMap::new(),
+            grad_workspace: Vec::new(),
+            param_workspace: Vec::new(),
+            new_param_workspace: Vec::new(),
+            grad_sq_workspace: Vec::new(),
         }
     }
 
@@ -175,11 +198,10 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                     return Err(FerrotorchError::NotImplementedOnCuda { op: "Adafactor" });
                 }
 
-                let grad_data = grad_tensor.data_vec()?;
-                let param_data = tensor.data_vec()?;
                 let shape = tensor.shape().to_vec();
                 let numel = tensor.numel();
                 let key = Self::param_key(gi, pi);
+                let group_lr = self.param_groups[gi].lr;
 
                 let use_factored = shape.len() >= 2;
                 let rows = if use_factored {
@@ -193,9 +215,28 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                     0
                 };
 
+                // CL-1125: clone the parameter tensor handle (Arc clone)
+                // to end the borrow on `self.param_groups` before touching
+                // the disjoint workspace / state fields of `self`.
+                let tensor_handle = tensor.clone();
+                let grad_handle = grad_tensor.clone();
+
+                // CL-1125: reuse typed workspaces for the param/grad reads
+                // and the per-step grad-sq buffer. `new_param_workspace`
+                // is initialised by copying from `param_workspace` so the
+                // weight-decay loop and the update loop can mutate it in
+                // place without owning a fresh `Vec<T>`.
+                fill_t_workspace(&mut self.grad_workspace, &grad_handle)?;
+                fill_t_workspace(&mut self.param_workspace, &tensor_handle)?;
+                resize_typed_workspace(&mut self.new_param_workspace, numel);
+                self.new_param_workspace
+                    .copy_from_slice(&self.param_workspace);
+                resize_f64_workspace(&mut self.grad_sq_workspace, numel);
+
                 let state = self.state.entry(key).or_insert_with(|| {
                     let rms = {
-                        let sum_sq: f64 = param_data
+                        let sum_sq: f64 = self
+                            .param_workspace
                             .iter()
                             .map(|v| {
                                 let f = num_traits::ToPrimitive::to_f64(v).unwrap();
@@ -238,7 +279,6 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                 };
 
                 // Compute effective learning rate.
-                let group_lr = self.param_groups[gi].lr;
                 let lr = if config.relative_step {
                     let rel = if config.warmup_init {
                         (step as f64).powf(-0.5).min(1e-6 * step as f64)
@@ -252,24 +292,24 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                 };
 
                 no_grad(|| -> FerrotorchResult<()> {
-                    let mut new_param = param_data.clone();
-
-                    // Weight decay.
+                    // Weight decay (in-place on new_param_workspace).
                     if config.weight_decay != 0.0 {
-                        for slot in &mut new_param[..numel] {
+                        for slot in self.new_param_workspace.iter_mut() {
                             let p = cast::<T, f64>(*slot)?;
                             *slot = cast::<f64, T>(p * (1.0 - lr * config.weight_decay))?;
                         }
                     }
 
-                    // Compute squared gradients.
-                    let grad_sq: Vec<f64> = grad_data
-                        .iter()
-                        .map(|v| {
-                            let g = num_traits::ToPrimitive::to_f64(v).unwrap();
-                            g * g + config.eps_sq
-                        })
-                        .collect();
+                    // Compute squared gradients into the reusable f64
+                    // workspace.
+                    for (slot, v) in self
+                        .grad_sq_workspace
+                        .iter_mut()
+                        .zip(self.grad_workspace.iter())
+                    {
+                        let g = num_traits::ToPrimitive::to_f64(v).unwrap();
+                        *slot = g * g + config.eps_sq;
+                    }
 
                     if use_factored {
                         // Update row and column factors.
@@ -279,7 +319,8 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                             let mut row_mean = 0.0;
                             for b in 0..batch {
                                 for c in 0..cols {
-                                    row_mean += grad_sq[b * rows * cols + r * cols + c];
+                                    row_mean +=
+                                        self.grad_sq_workspace[b * rows * cols + r * cols + c];
                                 }
                             }
                             row_mean /= (batch * cols) as f64;
@@ -291,7 +332,8 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                             let mut col_mean = 0.0;
                             for b in 0..batch {
                                 for r in 0..rows {
-                                    col_mean += grad_sq[b * rows * cols + r * cols + c];
+                                    col_mean +=
+                                        self.grad_sq_workspace[b * rows * cols + r * cols + c];
                                 }
                             }
                             col_mean /= (batch * rows) as f64;
@@ -308,7 +350,8 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                             let r = (i / cols) % rows;
                             let c = i % cols;
                             let v_est = state.row_factor[r] * state.col_factor[c] / row_mean;
-                            let g = num_traits::ToPrimitive::to_f64(&grad_data[i]).unwrap();
+                            let g =
+                                num_traits::ToPrimitive::to_f64(&self.grad_workspace[i]).unwrap();
 
                             let update = if let Some(beta1) = config.beta1 {
                                 state.exp_avg[i] = beta1 * state.exp_avg[i] + (1.0 - beta1) * g;
@@ -317,15 +360,17 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                                 g / (v_est.sqrt() + 1e-30)
                             };
 
-                            let p = cast::<T, f64>(new_param[i])?;
-                            new_param[i] = cast::<f64, T>(p - lr * update)?;
+                            let p = cast::<T, f64>(self.new_param_workspace[i])?;
+                            self.new_param_workspace[i] = cast::<f64, T>(p - lr * update)?;
                         }
                     } else {
                         // Non-factored: full second moment.
                         for i in 0..numel {
-                            state.full_sq[i] = rho * state.full_sq[i] + (1.0 - rho) * grad_sq[i];
+                            state.full_sq[i] =
+                                rho * state.full_sq[i] + (1.0 - rho) * self.grad_sq_workspace[i];
 
-                            let g = num_traits::ToPrimitive::to_f64(&grad_data[i]).unwrap();
+                            let g =
+                                num_traits::ToPrimitive::to_f64(&self.grad_workspace[i]).unwrap();
                             let update = if let Some(beta1) = config.beta1 {
                                 state.exp_avg[i] = beta1 * state.exp_avg[i] + (1.0 - beta1) * g;
                                 state.exp_avg[i] / (state.full_sq[i].sqrt() + 1e-30)
@@ -333,13 +378,14 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                                 g / (state.full_sq[i].sqrt() + 1e-30)
                             };
 
-                            let p = cast::<T, f64>(new_param[i])?;
-                            new_param[i] = cast::<f64, T>(p - lr * update)?;
+                            let p = cast::<T, f64>(self.new_param_workspace[i])?;
+                            self.new_param_workspace[i] = cast::<f64, T>(p - lr * update)?;
                         }
                     }
 
                     // Update RMS for relative step sizing.
-                    let sum_sq: f64 = new_param
+                    let sum_sq: f64 = self
+                        .new_param_workspace
                         .iter()
                         .map(|v| {
                             let f = num_traits::ToPrimitive::to_f64(v).unwrap();
@@ -354,15 +400,16 @@ impl<T: Float> Optimizer<T> for Adafactor<T> {
                     //     handle to this optimiser; the per-(gi, pi) loop is
                     //     sequential.
                     //  2. The closure body sits inside the `no_grad` closure
-                    //     started above (line 195), so no autograd `grad_fn`
-                    //     will clone the storage Arc as a side effect.
-                    //  3. The earlier `param.data_vec()` read returned an
-                    //     owned `Vec<T>` (`param_data`) which was cloned
-                    //     into `new_param`; both are owned `Vec`s
-                    //     independent of the parameter's storage. No live
-                    //     `&[T]` / `&mut [T]` borrow into the storage
-                    //     remains.
-                    unsafe { param.tensor().update_data(&new_param)? };
+                    //     started above, so no autograd `grad_fn` will clone
+                    //     the storage Arc as a side effect.
+                    //  3. `new_param_workspace` is an owned `Vec<T>` field
+                    //     on the optimiser, populated above by
+                    //     `copy_from_slice` from `param_workspace` (which
+                    //     itself was filled from `tensor.data()` /
+                    //     `data_vec()` and is allocator-independent of the
+                    //     parameter storage). No live `&[T]` / `&mut [T]`
+                    //     borrow into the parameter storage remains.
+                    unsafe { tensor_handle.update_data(&self.new_param_workspace)? };
                     Ok(())
                 })?;
             }

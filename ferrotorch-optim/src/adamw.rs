@@ -16,7 +16,9 @@ use ferrotorch_core::numeric_cast::cast;
 use ferrotorch_core::{FerrotorchError, FerrotorchResult, Float, Tensor, no_grad};
 use ferrotorch_nn::Parameter;
 
-use crate::optimizer::{Optimizer, OptimizerState, ParamGroup};
+use crate::optimizer::{
+    Optimizer, OptimizerState, ParamGroup, fill_f64_workspace, resize_typed_workspace,
+};
 
 // ---------------------------------------------------------------------------
 // Config
@@ -161,6 +163,17 @@ pub struct AdamW<T: Float> {
     /// Foreach (on-device) per-parameter state. Used when
     /// `config.foreach == true`.
     foreach_state: HashMap<String, AdamWForeachState<T>>,
+    /// CL-1125: reusable per-step workspaces for the legacy CPU `step` path.
+    /// See `Adam`'s field docs for the motivation. AdamW additionally stages
+    /// the new moments through `exp_avg_new_workspace` /
+    /// `exp_avg_sq_new_workspace` to preserve the "commit state only after
+    /// successful write" semantics; on success the staged buffers are swapped
+    /// into the per-parameter state (zero-copy `mem::swap`).
+    param_workspace: Vec<f64>,
+    grad_workspace: Vec<f64>,
+    exp_avg_new_workspace: Vec<f64>,
+    exp_avg_sq_new_workspace: Vec<f64>,
+    new_values_workspace: Vec<T>,
 }
 
 impl<T: Float> AdamW<T> {
@@ -173,6 +186,11 @@ impl<T: Float> AdamW<T> {
             config,
             state: HashMap::new(),
             foreach_state: HashMap::new(),
+            param_workspace: Vec::new(),
+            grad_workspace: Vec::new(),
+            exp_avg_new_workspace: Vec::new(),
+            exp_avg_sq_new_workspace: Vec::new(),
+            new_values_workspace: Vec::new(),
         }
     }
 
@@ -183,6 +201,11 @@ impl<T: Float> AdamW<T> {
             config,
             state: HashMap::new(),
             foreach_state: HashMap::new(),
+            param_workspace: Vec::new(),
+            grad_workspace: Vec::new(),
+            exp_avg_new_workspace: Vec::new(),
+            exp_avg_sq_new_workspace: Vec::new(),
+            new_values_workspace: Vec::new(),
         }
     }
 
@@ -369,19 +392,20 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                 };
 
                 let key = Self::param_key(gi, pi);
+                let numel = tensor.numel();
 
-                // Read parameter data and gradient data into f64 workspace.
-                // data_vec() handles GPU→CPU transfer transparently.
-                let param_data: Vec<f64> = tensor
-                    .data_vec()?
-                    .iter()
-                    .map(|&v| cast::<T, f64>(v))
-                    .collect::<FerrotorchResult<Vec<f64>>>()?;
-                let mut grad_data: Vec<f64> = grad_tensor
-                    .data_vec()?
-                    .iter()
-                    .map(|&v| cast::<T, f64>(v))
-                    .collect::<FerrotorchResult<Vec<f64>>>()?;
+                // CL-1125: clone the parameter tensor handle (Arc clone)
+                // to end the borrow on `self.param_groups` before we touch
+                // the disjoint workspace / state fields of `self`.
+                let tensor_handle = tensor.clone();
+                let grad_handle = grad_tensor.clone();
+
+                // CL-1125: reuse optimizer-owned `Vec<f64>` workspaces
+                // instead of allocating two fresh full-numel `Vec<f64>`s
+                // per step. `data_vec()` handles GPU→CPU transfer.
+                fill_f64_workspace(&mut self.param_workspace, &tensor_handle)?;
+                fill_f64_workspace(&mut self.grad_workspace, &grad_handle)?;
+                let grad_data: &mut [f64] = &mut self.grad_workspace;
 
                 // Maximize: negate gradient. CL-321
                 if config.maximize {
@@ -389,8 +413,6 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                         *g = -*g;
                     }
                 }
-
-                let numel = param_data.len();
 
                 // ----------------------------------------------------------
                 // 1. Decoupled weight decay: p = p * (1 - lr * wd)
@@ -417,17 +439,26 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
 
                 let next_step = state.step_count + 1;
 
+                // CL-1125: stage new moments into reusable workspaces
+                // instead of allocating two fresh `Vec<f64>`s per step. The
+                // staged buffers are swapped into `state` only on
+                // successful write below.
+                self.exp_avg_new_workspace.clear();
+                self.exp_avg_new_workspace.reserve(numel);
+                self.exp_avg_sq_new_workspace.clear();
+                self.exp_avg_sq_new_workspace.reserve(numel);
                 // exp_avg_new  = beta1 * exp_avg  + (1 - beta1) * grad
                 // exp_avg_sq_new = beta2 * exp_avg_sq + (1 - beta2) * grad^2
-                let mut exp_avg_new = Vec::with_capacity(numel);
-                let mut exp_avg_sq_new = Vec::with_capacity(numel);
-                for ((&g, &ea), &eas) in grad_data
+                for ((&g, &ea), &eas) in self
+                    .grad_workspace
                     .iter()
                     .zip(state.exp_avg.iter())
                     .zip(state.exp_avg_sq.iter())
                 {
-                    exp_avg_new.push(beta1 * ea + (1.0 - beta1) * g);
-                    exp_avg_sq_new.push(beta2 * eas + (1.0 - beta2) * g * g);
+                    self.exp_avg_new_workspace
+                        .push(beta1 * ea + (1.0 - beta1) * g);
+                    self.exp_avg_sq_new_workspace
+                        .push(beta2 * eas + (1.0 - beta2) * g * g);
                 }
 
                 // ----------------------------------------------------------
@@ -436,15 +467,16 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                 let bc1 = 1.0 - beta1.powi(next_step as i32);
                 let bc2 = 1.0 - beta2.powi(next_step as i32);
 
-                let new_values: Vec<T> = (0..numel)
-                    .map(|i| {
-                        let m_hat = exp_avg_new[i] / bc1;
-                        let v_hat = exp_avg_sq_new[i] / bc2;
-                        let decayed = param_data[i] * decay_factor;
-                        let updated = decayed - group_lr * m_hat / (v_hat.sqrt() + config.eps);
-                        cast::<f64, T>(updated)
-                    })
-                    .collect::<FerrotorchResult<Vec<T>>>()?;
+                // CL-1125: reuse the typed output workspace instead of a
+                // fresh `Vec<T>` of full numel per step.
+                resize_typed_workspace(&mut self.new_values_workspace, numel);
+                for (i, slot) in self.new_values_workspace.iter_mut().enumerate() {
+                    let m_hat = self.exp_avg_new_workspace[i] / bc1;
+                    let v_hat = self.exp_avg_sq_new_workspace[i] / bc2;
+                    let decayed = self.param_workspace[i] * decay_factor;
+                    let updated = decayed - group_lr * m_hat / (v_hat.sqrt() + config.eps);
+                    *slot = cast::<f64, T>(updated)?;
+                }
 
                 // ----------------------------------------------------------
                 // Write the parameter update. Only commit state AFTER this
@@ -457,18 +489,22 @@ impl<T: Float> Optimizer<T> for AdamW<T> {
                     //    built and no grad_fn holds a reference to this storage.
                     // 2. The optimizer owns the Parameter, and step() borrows
                     //    &mut self, so no concurrent reads exist.
-                    // 3. All data was already read (param_data, grad_data) before
-                    //    this mutation, so we do not alias live references.
+                    // 3. All data was already read (cached in
+                    //    `param_workspace`/`grad_workspace`) before this
+                    //    mutation, so we do not alias live references.
                     //
                     // Invariant: callers must NOT hold references into
                     // param.tensor().data() across this call.
-                    unsafe { param.tensor().update_data(&new_values) }
+                    unsafe { tensor_handle.update_data(&self.new_values_workspace) }
                 })?;
 
-                // Commit state only after successful parameter write.
+                // CL-1125: commit state via `mem::swap` (O(1) — swaps the
+                // (ptr, len, cap) triples). The "old" state vectors become
+                // the workspaces for the next step, preserving their
+                // capacity.
                 state.step_count = next_step;
-                state.exp_avg = exp_avg_new;
-                state.exp_avg_sq = exp_avg_sq_new;
+                std::mem::swap(&mut state.exp_avg, &mut self.exp_avg_new_workspace);
+                std::mem::swap(&mut state.exp_avg_sq, &mut self.exp_avg_sq_new_workspace);
             }
         }
 

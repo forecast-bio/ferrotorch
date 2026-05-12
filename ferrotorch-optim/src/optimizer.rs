@@ -112,6 +112,89 @@ pub(crate) fn tensor_to_f64_vec<T: Float>(t: &Tensor<T>) -> FerrotorchResult<Vec
         .collect::<FerrotorchResult<Vec<f64>>>()
 }
 
+/// CL-1125: Fill a reusable `Vec<f64>` workspace with the contents of `tensor`.
+///
+/// Replaces the per-step allocation pattern
+/// ```ignore
+/// let data: Vec<f64> = tensor.data_vec()?.iter().map(|&v| cast::<T, f64>(v)).collect()?;
+/// ```
+/// which heap-allocates a fresh `Vec<T>` (from `data_vec`) plus a fresh `Vec<f64>`
+/// (from `collect`) on every optimiser step. For a 7B-param model this is ~28 GB of
+/// transient allocation per `step()`. Reusing a workspace owned by the optimizer
+/// drops the steady-state amortized cost to zero once the optimizer has been
+/// warmed up to the largest parameter it sees.
+///
+/// The workspace is `clear()`-ed first (length 0, capacity preserved) and then
+/// extended to exactly `tensor.numel()` elements. Capacity grows monotonically.
+pub(crate) fn fill_f64_workspace<T: Float>(
+    workspace: &mut Vec<f64>,
+    tensor: &Tensor<T>,
+) -> FerrotorchResult<()> {
+    let numel = tensor.numel();
+    workspace.clear();
+    workspace.reserve(numel);
+
+    if tensor.is_cuda() || !tensor.is_contiguous() {
+        // Non-CPU-contiguous: must materialize through `data_vec`. This still
+        // allocates a temporary `Vec<T>` (forced by the storage layout), but the
+        // f64 workspace itself is reused across steps.
+        let owned = tensor.data_vec()?;
+        for v in owned {
+            workspace.push(cast::<T, f64>(v)?);
+        }
+    } else {
+        // CPU contiguous: zero-copy borrow of the underlying slice.
+        for &v in tensor.data()? {
+            workspace.push(cast::<T, f64>(v)?);
+        }
+    }
+    Ok(())
+}
+
+/// CL-1125: Fill a reusable `Vec<T>` workspace with the contents of `tensor`.
+///
+/// CPU-contiguous path borrows the underlying `&[T]` slice; otherwise a single
+/// `data_vec()` is performed and the result moved into the workspace via
+/// `mem::swap` (zero copy of the elements themselves, just (ptr, len, cap)).
+pub(crate) fn fill_t_workspace<T: Float>(
+    workspace: &mut Vec<T>,
+    tensor: &Tensor<T>,
+) -> FerrotorchResult<()> {
+    let numel = tensor.numel();
+    workspace.clear();
+    workspace.reserve(numel);
+
+    if tensor.is_cuda() || !tensor.is_contiguous() {
+        let mut owned = tensor.data_vec()?;
+        // Move ownership into the workspace: keep its allocator-owned capacity
+        // when we swap back the now-empty buffer.
+        std::mem::swap(workspace, &mut owned);
+    } else {
+        workspace.extend_from_slice(tensor.data()?);
+    }
+    Ok(())
+}
+
+/// CL-1125: Resize a typed workspace to exactly `n` elements, preserving capacity.
+///
+/// Use to prepare an output buffer of `T` (e.g. the staging buffer handed to
+/// `update_data`) without paying for a fresh allocation each step. The buffer
+/// is initialized to `T::zero()`; callers overwrite every element via indexed
+/// assignment.
+#[inline]
+pub(crate) fn resize_typed_workspace<T: Float>(workspace: &mut Vec<T>, n: usize) {
+    workspace.clear();
+    workspace.resize(n, <T as num_traits::Zero>::zero());
+}
+
+/// CL-1125: Resize an `f64` workspace to exactly `n` elements (zero-initialised),
+/// preserving capacity.
+#[inline]
+pub(crate) fn resize_f64_workspace(workspace: &mut Vec<f64>, n: usize) {
+    workspace.clear();
+    workspace.resize(n, 0.0);
+}
+
 /// Helper: create a tensor from f64 vec (for state deserialization).
 pub(crate) fn f64_vec_to_tensor<T: Float>(
     data: &[f64],
