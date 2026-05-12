@@ -2,11 +2,12 @@
   "uuid": "3bc99dec-a874-4bd0-9ff6-ac431720ffa3",
   "display_id": 1161,
   "title": "multi-epoch training trajectory parity vs torch",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-12T04:48:15.106484753Z",
-  "updated_at": "2026-05-12T04:48:17.263367965Z",
+  "updated_at": "2026-05-12T05:00:23.087155028Z",
+  "closed_at": "2026-05-12T05:00:23.087155028Z",
   "labels": [
     "real-artifact"
   ]
