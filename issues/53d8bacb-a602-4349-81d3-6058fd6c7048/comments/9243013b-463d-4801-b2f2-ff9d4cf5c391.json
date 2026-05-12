@@ -1,0 +1,10 @@
+{
+  "uuid": "9243013b-463d-4801-b2f2-ff9d4cf5c391",
+  "issue_uuid": "53d8bacb-a602-4349-81d3-6058fd6c7048",
+  "author": "y4rr",
+  "content": "Decision: Switch the python reference for encode/decode from transformers.AutoTokenizer to tokenizers.Tokenizer (loaded from the same tokenizer.json the rust side reads). transformers post-processing (clean_up_tokenization_spaces, slow-tokenizer CLIP decoder) is a transformers concern that the rust crate does not implement and shouldn't claim to match. Keep transformers.AutoTokenizer for apply_chat_template only, since the chat template is a transformers concept (not a tokenizers concept) and the rust side renders the SAME Jinja template via minijinja — exact-match on the rendered string is the right contract there.",
+  "created_at": "2026-05-12T15:40:06.721395102Z",
+  "kind": "decision",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAnWYlagHjGUHcpLf7GOiaz7toUtbuAmSVA4g+wFSKSQ4K0WToOa2F3uJN+binT2tGNCkRlKTelugSk22m1M4SCA=="
+}
