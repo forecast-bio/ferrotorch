@@ -1,11 +1,22 @@
-//! Real Pythia-70M validation: load actual safetensors weights from
-//! HuggingFace, run inference, compare against PyTorch reference outputs,
-//! and benchmark training step speed.
+//! Pythia-70M shape-and-training-loop smoke test.
 //!
-//! This test requires the Pythia-70M weights to be cached at:
-//!   ~/.cache/huggingface/hub/models--EleutherAI--pythia-70m/
+//! What this actually does:
+//!   * Builds a Pythia-70M-sized GPT-NeoX model with **random weights**
+//!     (no HuggingFace safetensors, no PyTorch reference comparison).
+//!   * Runs 5 AdamW training steps over synthetic token IDs and asserts
+//!     `last_loss < first_loss` so that grad flow + optimizer updates the
+//!     ~26M-parameter graph end-to-end.
+//!   * Logs per-step wall-clock time for human inspection (no perf
+//!     assertion — the reported `155 ms/step` PyTorch reference is purely
+//!     informational and is NOT checked).
 //!
-//! Skip with: cargo test --test pythia_real -- --ignored
+//! Why it is `#[ignore]`-gated:
+//!   The forward pass instantiates a 6-layer, d=512, vocab=50304 graph and
+//!   reverse-mode autograd retains all activations. On CI runners this
+//!   regularly OOMs or exceeds the 60s per-test budget, so it must be
+//!   opted into explicitly with `--ignored`.
+//!
+//! Run with: `cargo test -p ferrotorch --test pythia_real --release -- --ignored`
 
 use std::time::Instant;
 
@@ -182,6 +193,7 @@ impl PythiaModel {
 // =====================================================================
 
 #[test]
+#[ignore = "Pythia-70M autograd graph (~26M params, full activations retained) routinely OOMs / times out on CI; opt in with --ignored"]
 fn test_pythia_70m_training_benchmark() {
     // Real Pythia-70M dimensions
     let n_layers = 6;

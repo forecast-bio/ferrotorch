@@ -441,15 +441,26 @@ fn test_transformer_block_training() {
 
 // =====================================================================
 // SPEED: Timed comparison benchmarks
+//
+// This test asserts perf-ratio thresholds against a PyTorch CPU reference so
+// that gross regressions (e.g. accidental debug-build, dropped SIMD, or
+// quadratic-in-rank rewrites of a hot kernel) surface as a hard test
+// failure rather than as a quiet log line. Thresholds are deliberately
+// generous: the goal is to catch order-of-magnitude regressions, not to
+// tune to within 20% of the reference on any machine. `#[ignore]`-gated
+// because timing on a busy CI runner is noisy and the test must be run on
+// a quiet host (`--release --ignored`).
 // =====================================================================
 #[test]
+#[ignore = "perf-ratio benchmark; noisy on shared CI runners — run explicitly with `--release -- --ignored`"]
 fn test_speed_comparison() {
     eprintln!("\n{}", "=".repeat(60));
     eprintln!("SPEED COMPARISON vs PyTorch");
     eprintln!("{}", "=".repeat(60));
 
-    // PyTorch reference numbers from pytorch_validate.py
-    let pytorch_ref = vec![
+    // PyTorch CPU reference numbers, in microseconds per op, captured by
+    // `scripts/pytorch_validate.py` on the project reference machine.
+    let pytorch_ref: &[(&str, f64)] = &[
         ("add_1M", 91.7),
         ("mul_1M", 41.9),
         ("relu_1M", 19.9),
@@ -457,10 +468,18 @@ fn test_speed_comparison() {
         ("matmul_64", 5.2),
         ("matmul_256", 145.4),
         ("matmul_1024", 2853.0),
-        ("mlp_fwd_b32", 50.0),
-        ("mlp_bwd_b32", 389.5),
-        ("train_step_b32", 747.8),
     ];
+
+    // Regression guard: ferrotorch must stay within this multiple of the
+    // PyTorch reference. Picked from the observed worst-case ratio on a
+    // developer laptop (release mode): elementwise `mul_1M` lands around
+    // ~19x of PyTorch today because PyTorch dispatches a hand-tuned AVX
+    // kernel while ferrotorch goes through the generic ferray loop.
+    // 25x leaves headroom for run-to-run jitter on noisy hosts and still
+    // catches an order-of-magnitude regression (e.g. accidentally
+    // shipping a debug build, dropping SIMD, or recomputing a transpose
+    // in a hot loop — any of which would push the ratio well past 50x).
+    const MAX_RATIO_VS_PYTORCH: f64 = 25.0;
 
     let a = rand::<f32>(&[1000, 1000]).unwrap();
     let b = rand::<f32>(&[1000, 1000]).unwrap();
@@ -508,7 +527,7 @@ fn test_speed_comparison() {
         let _ = a1024.matmul(&b1024).unwrap();
     });
 
-    let results = vec![
+    let results: &[(&str, f64)] = &[
         ("add_1M", ft_add),
         ("mul_1M", ft_mul),
         ("relu_1M", ft_relu),
@@ -519,24 +538,36 @@ fn test_speed_comparison() {
     ];
 
     eprintln!(
-        "\n{:<20} {:>12} {:>12} {:>8}",
+        "\n{:<20} {:>12} {:>14} {:>8}",
         "Operation", "PyTorch(us)", "ferrotorch(us)", "Ratio"
     );
-    eprintln!("{}", "-".repeat(56));
-    for (name, ft_us) in &results {
-        if let Some((_, pt_us)) = pytorch_ref.iter().find(|(n, _)| n == name) {
-            let ratio = ft_us / pt_us;
-            let status = if ratio < 1.5 {
-                "✓"
-            } else if ratio < 5.0 {
-                "~"
-            } else {
-                "✗"
-            };
-            eprintln!(
-                "{:<20} {:>12.1} {:>12.1} {:>7.1}x {status}",
-                name, pt_us, ft_us, ratio
-            );
+    eprintln!("{}", "-".repeat(58));
+
+    let mut failures: Vec<String> = Vec::new();
+    for (name, ft_us) in results {
+        let pt_us = pytorch_ref
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| *v)
+            .unwrap_or_else(|| panic!("missing PyTorch reference for {name}"));
+        let ratio = ft_us / pt_us;
+        eprintln!(
+            "{:<20} {:>12.1} {:>14.1} {:>7.1}x",
+            name, pt_us, ft_us, ratio
+        );
+        if ratio > MAX_RATIO_VS_PYTORCH {
+            failures.push(format!(
+                "{name}: ferrotorch={ft_us:.1}us vs PyTorch={pt_us:.1}us \
+                 (ratio={ratio:.1}x, threshold={MAX_RATIO_VS_PYTORCH:.1}x)"
+            ));
         }
     }
+
+    // Final hard gate. All ops must clear the threshold; we collect every
+    // offender before failing so a single run surfaces all regressions.
+    assert!(
+        failures.is_empty(),
+        "perf-ratio regression vs PyTorch reference:\n  - {}",
+        failures.join("\n  - ")
+    );
 }
