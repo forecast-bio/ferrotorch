@@ -1,0 +1,10 @@
+{
+  "uuid": "38c64add-5b33-488f-8103-f06b0f16a27b",
+  "issue_uuid": "53d8bacb-a602-4349-81d3-6058fd6c7048",
+  "author": "y4rr",
+  "content": "Observation: HF auth as dollspace; all 5 canonical tokenizer families are reachable from this workstation (clip-vit-large-patch14, bert-base-uncased, gpt2, SmolLM-135M, Meta-Llama-3-8B). Using meta-llama/Meta-Llama-3-8B as the Llama 3 family (no agreement wall here since logged-in user has the EULA accepted on dollspace account). Python transformers=4.50.3, tokenizers=0.21.4; Rust workspace pins tokenizers=0.22 — minor-version skew, will surface in fixture metadata; pure Rust-vs-Python tokenizer comparison is what we are testing so the python tokenizers version is what matters. Plan: 5 fixture families, 20 strings each.",
+  "created_at": "2026-05-12T15:34:31.139946771Z",
+  "kind": "observation",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAOE9n8xCssIxwtHPFyZ4SgwGQYXoOtfV86krryxR5Mah0aM+X+/GTinQOcwfESfBj9J6xcrP9binTzmWAJfCmAQ=="
+}
