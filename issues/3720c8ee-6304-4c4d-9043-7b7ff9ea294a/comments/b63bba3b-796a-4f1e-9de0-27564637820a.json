@@ -1,0 +1,10 @@
+{
+  "uuid": "b63bba3b-796a-4f1e-9de0-27564637820a",
+  "issue_uuid": "3720c8ee-6304-4c4d-9043-7b7ff9ea294a",
+  "author": "y4rr",
+  "content": "Landed in cf6047b1b (release 0.5.6). GpuVaeEncoder + GpuDownsample + GpuDownEncoderBlock, composing existing ferrotorch-gpu kernels (gpu_conv2d_f32, gpu_group_norm_f32, gpu_silu, gpu_scale, gpu_clamp, gpu_exp, gpu_mul, gpu_add) plus gpu_philox_normal. Channel split via CudaSlice::slice + memcpy_dtod (GPU->GPU, no host bounce). 3 new GPU conformance tests run UNGATED on the RTX 3090: cpu/gpu mode parity, sample shape+finiteness, and a rust-gpu-discipline forbidden-pattern-#7 trip-wire via the new encode_with_gpu_params_probe API. B=1 enforced; B>1 returns InvalidArgument (strided gather kernel is the follow-on). cargo test -p ferrotorch-diffusion --features cuda --lib: 86 passed (was 83). cargo clippy --features cuda --all-targets -- -D warnings clean. Forward path stays GPU-resident; only cpu_to_gpu at API entry, gpu_to_cpu at exit (matches existing GpuVaeDecoder shape).",
+  "created_at": "2026-05-14T14:16:56.634962753Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAmrYwzSPTBi7CQo6lIg/nBGRMMM57H4V/PTMPokDVfuxWM451DJwACCdd7vjRvv9x+vbrBFWg+0aysRj3pZcoDA=="
+}
