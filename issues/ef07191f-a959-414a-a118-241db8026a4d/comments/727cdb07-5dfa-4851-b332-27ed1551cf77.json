@@ -1,0 +1,10 @@
+{
+  "uuid": "727cdb07-5dfa-4851-b332-27ed1551cf77",
+  "issue_uuid": "ef07191f-a959-414a-a118-241db8026a4d",
+  "author": "y4rr",
+  "content": "Investigated; closing as DEFERRED — naive par_iter over decode_view regresses native-f32 checkpoints. SD-1.5 UNet 3.4 GB on a 16-core RTX 3090 box: 315 s sequential -> 379 s parallel (poc-arxiv-rs run measurements). Root cause: decode_view for an F32 file is mmap-> owned Vec<f32> memcpy (memory-bandwidth-bound), so workers add page-fault + allocator contention instead of CPU throughput. Real win is gated on bf16/f16 checkpoints where the per-element half->f32 up-cast IS CPU-bound. Right shape: dtype-aware dispatcher (parallel for half, serial for f32). Commit 967fe376f records this in safetensors_io.rs's doc-comment so the next attempt starts from the right premise. No behavior change in this cycle.",
+  "created_at": "2026-05-14T17:30:48.746254190Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAaqXlTKyOFcYowBWGyqISknfHSAVL4XXDbgrKIxAbGhvXKj/tHzTWz+0QJsGOZqaRndIPQcwjUfevdgvYf8emAA=="
+}
