@@ -792,6 +792,193 @@ impl<T: Float> Module<T> for UpDecoderBlock2D<T> {
 }
 
 // ---------------------------------------------------------------------------
+// DownEncoderBlock2D
+// ---------------------------------------------------------------------------
+
+/// `DownEncoderBlock2D` — a stack of `layers_per_block` resnets at
+/// `out_channels`, optionally followed by a `Downsample2D`.
+///
+/// This is the encoder-side mirror of [`UpDecoderBlock2D`]. The
+/// asymmetry in resnet count (encoder uses `layers_per_block` resnets,
+/// decoder uses `layers_per_block + 1`) matches the diffusers
+/// `AutoencoderKL` convention exactly.
+///
+/// State-dict key layout:
+///
+/// ```text
+/// resnets.{i}.<resnet keys>      i in 0..layers_per_block
+/// downsamplers.0.<downsample keys>   (present iff add_downsample)
+/// ```
+#[derive(Debug)]
+pub struct DownEncoderBlock2D<T: Float> {
+    /// `layers_per_block` resnets at `out_channels`. The first resnet
+    /// projects `in_channels -> out_channels` (via its 1x1 shortcut
+    /// when the channels differ); subsequent resnets are `out_channels`
+    /// throughout.
+    pub resnets: Vec<ResnetBlock2D<T>>,
+    /// Optional downsample (absent on the deepest encoder block, which
+    /// holds spatial resolution before the mid-block).
+    pub downsamplers_0: Option<Downsample2D<T>>,
+    training: bool,
+}
+
+impl<T: Float> DownEncoderBlock2D<T> {
+    /// Build a randomly-initialized `DownEncoderBlock2D`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FerrotorchError::InvalidArgument`] when `num_resnets`
+    /// is zero, or any underlying [`FerrotorchError`] on bad channel /
+    /// group config.
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        num_resnets: usize,
+        norm_num_groups: usize,
+        eps: f64,
+        add_downsample: bool,
+    ) -> FerrotorchResult<Self> {
+        if num_resnets == 0 {
+            return Err(FerrotorchError::InvalidArgument {
+                message: "DownEncoderBlock2D: num_resnets must be > 0".into(),
+            });
+        }
+        let mut resnets = Vec::with_capacity(num_resnets);
+        for i in 0..num_resnets {
+            let in_c = if i == 0 { in_channels } else { out_channels };
+            resnets.push(ResnetBlock2D::<T>::new(
+                in_c,
+                out_channels,
+                norm_num_groups,
+                eps,
+            )?);
+        }
+        let downsamplers_0 = if add_downsample {
+            Some(Downsample2D::<T>::new(out_channels)?)
+        } else {
+            None
+        };
+        Ok(Self {
+            resnets,
+            downsamplers_0,
+            training: false,
+        })
+    }
+}
+
+impl<T: Float> Module<T> for DownEncoderBlock2D<T> {
+    fn forward(&self, input: &Tensor<T>) -> FerrotorchResult<Tensor<T>> {
+        let mut h = input.clone();
+        for r in &self.resnets {
+            h = r.forward(&h)?;
+        }
+        if let Some(d) = &self.downsamplers_0 {
+            h = d.forward(&h)?;
+        }
+        Ok(h)
+    }
+
+    fn parameters(&self) -> Vec<&Parameter<T>> {
+        let mut out = Vec::new();
+        for r in &self.resnets {
+            out.extend(r.parameters());
+        }
+        if let Some(d) = &self.downsamplers_0 {
+            out.extend(d.parameters());
+        }
+        out
+    }
+
+    fn parameters_mut(&mut self) -> Vec<&mut Parameter<T>> {
+        let mut out = Vec::new();
+        for r in &mut self.resnets {
+            out.extend(r.parameters_mut());
+        }
+        if let Some(d) = self.downsamplers_0.as_mut() {
+            out.extend(d.parameters_mut());
+        }
+        out
+    }
+
+    fn named_parameters(&self) -> Vec<(String, &Parameter<T>)> {
+        let mut out = Vec::new();
+        for (i, r) in self.resnets.iter().enumerate() {
+            for (n, p) in r.named_parameters() {
+                out.push((format!("resnets.{i}.{n}"), p));
+            }
+        }
+        if let Some(d) = &self.downsamplers_0 {
+            for (n, p) in d.named_parameters() {
+                out.push((format!("downsamplers.0.{n}"), p));
+            }
+        }
+        out
+    }
+
+    fn train(&mut self) {
+        self.training = true;
+        for r in &mut self.resnets {
+            r.train();
+        }
+        if let Some(d) = self.downsamplers_0.as_mut() {
+            d.train();
+        }
+    }
+    fn eval(&mut self) {
+        self.training = false;
+        for r in &mut self.resnets {
+            r.eval();
+        }
+        if let Some(d) = self.downsamplers_0.as_mut() {
+            d.eval();
+        }
+    }
+    fn is_training(&self) -> bool {
+        self.training
+    }
+
+    fn load_state_dict(&mut self, state: &StateDict<T>, strict: bool) -> FerrotorchResult<()> {
+        let extract = |prefix: &str| -> StateDict<T> {
+            let p = format!("{prefix}.");
+            state
+                .iter()
+                .filter_map(|(k, v)| k.strip_prefix(&p).map(|r| (r.to_string(), v.clone())))
+                .collect()
+        };
+        if strict {
+            for k in state.keys() {
+                let ok =
+                    k.starts_with("resnets.") || k.starts_with("downsamplers.0.");
+                if !ok {
+                    return Err(FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "unexpected key in DownEncoderBlock2D state_dict: \"{k}\""
+                        ),
+                    });
+                }
+            }
+        }
+        for (i, r) in self.resnets.iter_mut().enumerate() {
+            r.load_state_dict(&extract(&format!("resnets.{i}")), strict)?;
+        }
+        if let Some(d) = self.downsamplers_0.as_mut() {
+            d.load_state_dict(&extract("downsamplers.0"), strict)?;
+        } else if strict {
+            for k in state.keys() {
+                if k.starts_with("downsamplers.") {
+                    return Err(FerrotorchError::InvalidArgument {
+                        message: format!(
+                            "DownEncoderBlock2D has no downsampler but state_dict contains \"{k}\""
+                        ),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // UNetMidBlock2D (VAE flavour)
 // ---------------------------------------------------------------------------
 
@@ -1078,6 +1265,50 @@ mod tests {
         .unwrap();
         let y = b.forward(&x).unwrap();
         assert_eq!(y.shape(), &[1, 8, 3, 3]);
+    }
+
+    #[test]
+    fn down_encoder_block_shape_with_downsample() {
+        // [1, 8, 4, 4] -> resnets project 8 -> 16 -> downsample halves spatial
+        let b = DownEncoderBlock2D::<f32>::new(8, 16, 2, 4, 1e-6, true).unwrap();
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.05f32; 8 * 4 * 4]),
+            vec![1, 8, 4, 4],
+            false,
+        )
+        .unwrap();
+        let y = b.forward(&x).unwrap();
+        assert_eq!(y.shape(), &[1, 16, 2, 2]);
+    }
+
+    #[test]
+    fn down_encoder_block_shape_no_downsample() {
+        // Last encoder block: same channels, no downsample (spatial preserved)
+        let b = DownEncoderBlock2D::<f32>::new(16, 16, 2, 4, 1e-6, false).unwrap();
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.05f32; 16 * 2 * 2]),
+            vec![1, 16, 2, 2],
+            false,
+        )
+        .unwrap();
+        let y = b.forward(&x).unwrap();
+        assert_eq!(y.shape(), &[1, 16, 2, 2]);
+    }
+
+    #[test]
+    fn down_encoder_block_named_parameters_layout() {
+        let b = DownEncoderBlock2D::<f32>::new(8, 16, 2, 4, 1e-6, true).unwrap();
+        let names: Vec<String> = b.named_parameters().into_iter().map(|(n, _)| n).collect();
+        for k in [
+            "resnets.0.norm1.weight",
+            "resnets.0.conv1.weight",
+            "resnets.0.conv_shortcut.weight",
+            "resnets.1.norm1.weight",
+            "downsamplers.0.conv.weight",
+            "downsamplers.0.conv.bias",
+        ] {
+            assert!(names.iter().any(|n| n == k), "missing {k} in {names:?}");
+        }
     }
 
     #[test]

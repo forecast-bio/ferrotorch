@@ -19,6 +19,7 @@ use crate::config::VaeDecoderConfig;
 use crate::unet::UNet2DConditionModel;
 use crate::unet_config::UNet2DConditionConfig;
 use crate::vae::VaeDecoder;
+use crate::vae_encoder::{VaeEncoder, VaeEncoderConfig};
 
 /// Audit trail returned by [`load_vae_decoder`] / [`VaeDecoder::load_hf_state_dict`].
 ///
@@ -332,6 +333,99 @@ pub fn load_vae_decoder<T: Float>(
     Ok((decoder, report))
 }
 
+// ---------------------------------------------------------------------------
+// VaeEncoder loader
+// ---------------------------------------------------------------------------
+
+impl<T: Float> VaeEncoder<T> {
+    /// Load a HuggingFace AutoencoderKL state dict into this module.
+    ///
+    /// Accepts both:
+    ///   - `encoder.*` / `quant_conv.*` (bare-VAE layout, the normalised
+    ///     form produced by the pin script for an encoder-only artifact)
+    ///   - `vae.encoder.*` / `vae.quant_conv.*` (full SD pipeline
+    ///     checkpoint, e.g. an upstream `runwayml/stable-diffusion-v1-5`
+    ///     `model.safetensors`)
+    ///
+    /// Any other key (decoder, `post_quant_conv`, UNet, text encoder, …)
+    /// is recorded in the returned [`DropReport`] (or, in strict mode,
+    /// surfaces as [`FerrotorchError::InvalidArgument`]). This mirrors
+    /// [`VaeDecoder::load_hf_state_dict`] so the same full-checkpoint
+    /// file can be loaded twice — once for the encoder and once for the
+    /// decoder — each time dropping the other half.
+    ///
+    /// # Errors
+    ///
+    /// Forwards whatever each sub-module's `load_state_dict` returns
+    /// (`ShapeMismatch` on a wrong-shape tensor, `InvalidArgument` in
+    /// strict mode when a required tensor is missing). Strict mode will
+    /// surface `decoder.*` / `post_quant_conv.*` / etc. as errors;
+    /// callers with a full VAE checkpoint must pass `strict=false`.
+    pub fn load_hf_state_dict(
+        &mut self,
+        hf_state: &StateDict<T>,
+        strict: bool,
+    ) -> FerrotorchResult<DropReport> {
+        let mut remapped: StateDict<T> = HashMap::with_capacity(hf_state.len());
+        let mut dropped: Vec<String> = Vec::new();
+
+        for (k, v) in hf_state {
+            // (a) bare-VAE prefix → as-is; (b) full-pipeline `vae.<rest>`
+            // prefix → strip the `vae.` and accept.
+            let after_vae = k.strip_prefix("vae.").map_or_else(|| k.clone(), str::to_owned);
+            if after_vae.starts_with("encoder.") || after_vae.starts_with("quant_conv.") {
+                remapped.insert(after_vae, v.clone());
+                continue;
+            }
+            if strict {
+                return Err(FerrotorchError::InvalidArgument {
+                    message: format!(
+                        "VaeEncoder::load_hf_state_dict: key {k:?} is not under \
+                         `encoder.*` / `quant_conv.*` (with optional `vae.` prefix) \
+                         and strict mode is on. Pass strict=false to drop decoder / \
+                         post_quant_conv keys."
+                    ),
+                });
+            }
+            dropped.push(k.clone());
+        }
+        dropped.sort();
+        self.load_state_dict(&remapped, strict)?;
+        Ok(DropReport { dropped })
+    }
+}
+
+/// Load a [`VaeEncoder`] from a VAE `diffusion_pytorch_model.safetensors`
+/// file plus a parsed config.
+///
+/// Symmetric counterpart of [`load_vae_decoder`]. `strict=false` is
+/// required for a full `AutoencoderKL` checkpoint (which ships
+/// `decoder` + `post_quant_conv` weights this encoder-only loader has
+/// no slot for). The returned [`DropReport`] captures every dropped
+/// key so a pin script can audit the drop set.
+///
+/// # Errors
+///
+/// Propagates safetensors parse errors, [`VaeEncoder`] construction
+/// errors, and any per-key shape / strict-mode mismatch from the
+/// underlying load.
+pub fn load_vae_encoder<T: Float>(
+    weights_path: &Path,
+    cfg: VaeEncoderConfig,
+    strict: bool,
+) -> FerrotorchResult<(VaeEncoder<T>, DropReport)> {
+    let state =
+        load_safetensors::<T>(weights_path).map_err(|e| FerrotorchError::InvalidArgument {
+            message: format!(
+                "load_vae_encoder: failed to decode safetensors {}: {e}",
+                weights_path.display()
+            ),
+        })?;
+    let mut encoder = VaeEncoder::<T>::new(cfg)?;
+    let report = encoder.load_hf_state_dict(&state, strict)?;
+    Ok((encoder, report))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,5 +541,139 @@ mod tests {
         for (x, y) in a.data().unwrap().iter().zip(b.data().unwrap().iter()) {
             assert!((x - y).abs() < 1e-5);
         }
+    }
+
+    fn tmp_encoder_safetensors_from(v: &VaeEncoder<f32>) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("model.safetensors");
+        let sd = v.state_dict();
+        save_safetensors(&sd, &path).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn round_trip_safetensors_into_encoder() {
+        let cfg = tiny_cfg();
+        let src = VaeEncoder::<f32>::new(cfg.clone()).unwrap();
+        let (_d, p) = tmp_encoder_safetensors_from(&src);
+        let (dst, report) = load_vae_encoder::<f32>(&p, cfg.clone(), false).unwrap();
+        assert!(
+            report.dropped.is_empty(),
+            "encoder round-trip should have empty drop list, got {:?}",
+            report.dropped
+        );
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.01f32; 3 * 8 * 8]),
+            vec![1, 3, 8, 8],
+            false,
+        )
+        .unwrap();
+        let a = src.forward(&x).unwrap();
+        let b = dst.forward(&x).unwrap();
+        for (x, y) in a.data().unwrap().iter().zip(b.data().unwrap().iter()) {
+            assert!((x - y).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn encoder_load_hf_drops_decoder_keys_nonstrict() {
+        let cfg = tiny_cfg();
+        let mut v = VaeEncoder::<f32>::new(cfg).unwrap();
+        let mut hf_sd: StateDict<f32> = v.state_dict();
+        // Add decoder keys that the encoder should drop.
+        hf_sd.insert(
+            "decoder.conv_in.weight".into(),
+            ferrotorch_core::zeros::<f32>(&[4, 4]).unwrap(),
+        );
+        hf_sd.insert(
+            "post_quant_conv.weight".into(),
+            ferrotorch_core::zeros::<f32>(&[4, 4]).unwrap(),
+        );
+        let rep = v.load_hf_state_dict(&hf_sd, false).unwrap();
+        assert_eq!(
+            rep.dropped,
+            vec![
+                "decoder.conv_in.weight".to_string(),
+                "post_quant_conv.weight".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn encoder_load_hf_strict_rejects_decoder_keys() {
+        let cfg = tiny_cfg();
+        let mut v = VaeEncoder::<f32>::new(cfg).unwrap();
+        let mut hf_sd: StateDict<f32> = HashMap::new();
+        hf_sd.insert(
+            "decoder.conv_in.weight".into(),
+            ferrotorch_core::zeros::<f32>(&[4, 4]).unwrap(),
+        );
+        assert!(v.load_hf_state_dict(&hf_sd, true).is_err());
+    }
+
+    #[test]
+    fn encoder_load_hf_strips_vae_prefix() {
+        let cfg = tiny_cfg();
+        let src = VaeEncoder::<f32>::new(cfg.clone()).unwrap();
+        let bare = src.state_dict();
+        let mut prefixed: StateDict<f32> = HashMap::new();
+        for (k, v) in bare {
+            prefixed.insert(format!("vae.{k}"), v);
+        }
+        let mut dst = VaeEncoder::<f32>::new(cfg).unwrap();
+        let rep = dst.load_hf_state_dict(&prefixed, false).unwrap();
+        assert!(rep.dropped.is_empty(), "got {:?}", rep.dropped);
+        let x = Tensor::from_storage(
+            TensorStorage::cpu(vec![0.01f32; 3 * 8 * 8]),
+            vec![1, 3, 8, 8],
+            false,
+        )
+        .unwrap();
+        let a = src.forward(&x).unwrap();
+        let b = dst.forward(&x).unwrap();
+        for (x, y) in a.data().unwrap().iter().zip(b.data().unwrap().iter()) {
+            assert!((x - y).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn full_vae_checkpoint_loadable_by_both_halves() {
+        // The interesting property: a single full-VAE state dict
+        // (encoder + post_quant_conv + decoder + quant_conv) is loadable
+        // by both VaeDecoder and VaeEncoder, each cleanly dropping the
+        // half it doesn't own.
+        let cfg = tiny_cfg();
+        let dec_src = VaeDecoder::<f32>::new(cfg.clone()).unwrap();
+        let enc_src = VaeEncoder::<f32>::new(cfg.clone()).unwrap();
+
+        let mut combined: StateDict<f32> = HashMap::new();
+        for (k, v) in dec_src.state_dict() {
+            combined.insert(k, v);
+        }
+        for (k, v) in enc_src.state_dict() {
+            combined.insert(k, v);
+        }
+
+        let mut dec_dst = VaeDecoder::<f32>::new(cfg.clone()).unwrap();
+        let dec_rep = dec_dst.load_hf_state_dict(&combined, false).unwrap();
+        let mut enc_dst = VaeEncoder::<f32>::new(cfg).unwrap();
+        let enc_rep = enc_dst.load_hf_state_dict(&combined, false).unwrap();
+
+        // Decoder should have dropped exactly the encoder + quant_conv keys.
+        for k in &dec_rep.dropped {
+            assert!(
+                k.starts_with("encoder.") || k.starts_with("quant_conv."),
+                "decoder dropped unexpected key: {k}"
+            );
+        }
+        // Encoder should have dropped exactly the decoder + post_quant_conv keys.
+        for k in &enc_rep.dropped {
+            assert!(
+                k.starts_with("decoder.") || k.starts_with("post_quant_conv."),
+                "encoder dropped unexpected key: {k}"
+            );
+        }
+        assert!(!dec_rep.dropped.is_empty(), "decoder should have dropped some keys");
+        assert!(!enc_rep.dropped.is_empty(), "encoder should have dropped some keys");
     }
 }

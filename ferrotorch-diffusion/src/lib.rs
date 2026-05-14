@@ -111,9 +111,13 @@ pub mod time_embedding;
 pub mod unet;
 pub mod unet_config;
 pub mod vae;
+pub mod vae_encoder;
 
 pub use attention::{Attention, BasicTransformerBlock, FeedForward, Transformer2DModel};
-pub use blocks::{AttnBlock2D, Downsample2D, ResnetBlock2D, UNetMidBlock2D, UpDecoderBlock2D, Upsample2D};
+pub use blocks::{
+    AttnBlock2D, DownEncoderBlock2D, Downsample2D, ResnetBlock2D, UNetMidBlock2D,
+    UpDecoderBlock2D, Upsample2D,
+};
 pub use clip_text_encoder::{
     ClipEncoder, ClipEncoderLayer, ClipMlp, ClipSelfAttention, ClipTextConfig, ClipTextEmbeddings,
     ClipTextEncoder,
@@ -121,7 +125,9 @@ pub use clip_text_encoder::{
 pub use config::VaeDecoderConfig;
 pub use pipeline::{PipelineStepDump, StableDiffusionPipeline};
 pub use resnet_block_time::ResnetBlock2DTime;
-pub use safetensors_loader::{load_clip_text_encoder, load_unet, load_vae_decoder, DropReport};
+pub use safetensors_loader::{
+    load_clip_text_encoder, load_unet, load_vae_decoder, load_vae_encoder, DropReport,
+};
 pub use scheduler::{BetaSchedule, DDIMConfig, DDIMScheduler, PredictionType, TimestepSpacing};
 pub use time_embedding::{TimestepEmbedding, Timesteps};
 pub use unet::{
@@ -130,3 +136,4 @@ pub use unet::{
 };
 pub use unet_config::UNet2DConditionConfig;
 pub use vae::{Decoder, VaeDecoder};
+pub use vae_encoder::{DiagonalGaussianDistribution, Encoder, VaeEncoder, VaeEncoderConfig};

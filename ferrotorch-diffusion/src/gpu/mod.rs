@@ -9,6 +9,10 @@
 //!
 //! - [`vae::GpuVaeDecoder`] — VAE decoder forward path, mirroring
 //!   [`crate::vae::VaeDecoder`] op-for-op on CUDA.
+//! - [`vae_encoder::GpuVaeEncoder`] — VAE encoder forward path,
+//!   mirroring [`crate::vae_encoder::VaeEncoder`] op-for-op on CUDA
+//!   (#1177). Composes the existing ferrotorch-gpu element kernels
+//!   plus `gpu_philox_normal` for the diagonal-Gaussian sample step.
 //! - [`clip::GpuClipTextEncoder`] — SD-1.5 CLIP text-encoder forward
 //!   path, mirroring [`crate::clip_text_encoder::ClipTextEncoder`]
 //!   op-for-op on CUDA.
@@ -25,8 +29,10 @@ pub mod clip;
 pub mod pipeline;
 pub mod unet;
 pub mod vae;
+pub mod vae_encoder;
 
 pub use clip::GpuClipTextEncoder;
 pub use pipeline::GpuStableDiffusionPipeline;
 pub use unet::GpuUNet2DConditional;
 pub use vae::GpuVaeDecoder;
+pub use vae_encoder::GpuVaeEncoder;

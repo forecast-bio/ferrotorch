@@ -12,6 +12,103 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+## [0.5.6] - 2026-05-14
+
+### Release notes
+
+Workspace bumped from 0.5.5 → 0.5.6. Adds the VAE encoder half of
+`AutoencoderKL` (`ferrotorch-diffusion`), in both CPU and GPU forms,
+unblocking VAE-encode workflows (tiled image refinement, image-to-image
+generation, dataset-side latent precomputation) that the prior
+decoder-only build could not support. Workspace `cargo build`,
+`cargo test --lib`, `cargo test --features cuda --lib`, and
+`cargo clippy --features cuda --all-targets -- -D warnings` clean
+on `ferrotorch-diffusion` at 0.5.6 (lib counts: 79 without features,
+86 with `--features cuda`).
+
+### Added
+- `ferrotorch-diffusion`: VAE encoder half of `AutoencoderKL` for SD-1.5
+  — both CPU `VaeEncoder<T>` (#1176) and GPU `GpuVaeEncoder` (#1177)
+  halves landed in this cycle. The GPU half mirrors the existing
+  `GpuVaeDecoder` architecture op-for-op and passes its own
+  conformance tests on a real RTX 3090. New `vae_encoder` module ships
+  `Encoder<T>`, `VaeEncoder<T>`
+  (wraps `Encoder` + `quant_conv`), and `DiagonalGaussianDistribution<T>`
+  (mean/logvar split with diffusers-matching `[-30, 20]` clamp,
+  deterministic `sample_with_seed` via Box-Muller over a caller-seeded
+  xorshift64 — zero new deps, mirrors the CPU branch of
+  `ferrotorch_core::randn`, `.mode()` returns the mean for bit-exact
+  reference matches). New `DownEncoderBlock2D` in `blocks.rs` —
+  encoder-side mirror of `UpDecoderBlock2D` with `layers_per_block`
+  resnets (vs the decoder's `+ 1`) and optional `Downsample2D` tail.
+  New `load_vae_encoder` in `safetensors_loader.rs` symmetric to
+  `load_vae_decoder`; both halves can be loaded from a single full
+  `AutoencoderKL` checkpoint via `strict=false` (each side reports the
+  dropped keys it doesn't own in a `DropReport`). `VaeEncoderConfig` is
+  a type alias for `VaeDecoderConfig` — the fields cover both halves
+  (matching `diffusers.AutoencoderKL.config`). Public surface:
+  `Encoder`, `VaeEncoder`, `VaeEncoderConfig`, `DiagonalGaussianDistribution`
+  re-exported from the crate root; `DownEncoderBlock2D` re-exported via
+  `ferrotorch_diffusion::blocks`. New tests: 3 `DownEncoderBlock2D`
+  block tests, 8 `vae_encoder` module tests (shape, named-parameters
+  layout, logvar clamp, deterministic sample, scaling-factor application,
+  state-dict round-trip), 5 loader tests (encoder safetensors round-trip,
+  HF prefix strip, strict-mode rejection, `full_vae_checkpoint_loadable_by_both_halves`
+  proving one full-VAE checkpoint loads cleanly into both halves).
+  `cargo test -p ferrotorch-diffusion --lib`: 79 passed / 0 failed
+  (was 63). New `tests/conformance_vae_encoder.rs` integration test
+  with two `#[ignore]` cases: SD-1.5-scale shape/finiteness sanity
+  (random weights, `[1, 3, 512, 512] -> [1, 8, 64, 64]`) and a
+  diffusers-parity placeholder that skips with a helpful message until
+  a `ferrotorch/sd-v1-5-vae-encoder` HF mirror is registered in
+  `ferrotorch-hub/src/registry.rs`. New `scripts/verify_vae_encoder.py`
+  reference script (`--pin` / `--verify` modes) ready to consume by
+  the parity harness once the mirror lands. Unblocks
+  molten#639 (poc-arxiv-rs Rust-native variant tile_upscale step).
+- `ferrotorch-diffusion::gpu::vae_encoder::GpuVaeEncoder` (#1177).
+  GPU-resident counterpart of the CPU `VaeEncoder<T>`, mirroring
+  `GpuVaeDecoder` op-for-op. Composes the existing
+  `ferrotorch-gpu` element kernels (`gpu_conv2d_f32`,
+  `gpu_group_norm_f32`, `gpu_silu`, `gpu_scale`, `gpu_clamp`,
+  `gpu_exp`, `gpu_mul`, `gpu_add`) plus `gpu_philox_normal` (PTX
+  Box-Muller) for the diagonal-Gaussian sample step. Channel-split
+  for `[B, 2L, H, W]` quant_conv output → `(mean, logvar)` is done
+  via `cudarc::CudaSlice::slice` + `stream.memcpy_dtod`, a single
+  GPU→GPU copy each (no host bounce). 8 module-private GPU primitive
+  types and 11 helper fns in `gpu/vae.rs` (`GpuConv2d`,
+  `GpuGroupNorm`, `GpuLinear`, `GpuResnet`, `GpuAttn`, `GpuMidBlock`
+  + `pop_*` / `*_forward` helpers + `gpu_err`) promoted to
+  `pub(super)` so the encoder can reuse them — no behavior change.
+  New `GpuDownsample` and `GpuDownEncoderBlock` types in
+  `gpu/vae_encoder.rs` complete the encoder side. Public API:
+  `encode(&Tensor<f32>) -> Tensor<f32>` (sampled, CPU↔GPU at API
+  boundary), `encode_mode(&Tensor<f32>) -> Tensor<f32>`
+  (deterministic, returns scaled mean), `from_module(&VaeEncoder<f32>,
+  &GpuDevice)` convenience constructor. `B == 1` restriction at the
+  channel-split helper (returns `InvalidArgument` for `B > 1`,
+  matching the existing `GpuStableDiffusionPipeline` batch assumption
+  — a strided channel-gather kernel is the follow-on for `B > 1`).
+  3 new GPU conformance tests in
+  `gpu::vae_encoder::tests` run UNGATED on the RTX 3090
+  (`cargo test --features cuda --lib gpu::vae_encoder::tests`):
+  (1) `gpu_encoder_mode_matches_cpu_mean_scaled_tiny` — CPU/GPU
+  numerical parity for the deterministic mode path (`max_abs < 1e-3`);
+  (2) `gpu_encoder_sample_shape_and_finite_tiny` — full sample+scale
+  chain produces finite `[1, 4, 1, 1]`; (3)
+  `gpu_encoder_params_probe_proves_gpu_residency` — rust-gpu-discipline
+  trip-wire (forbidden pattern #7), uses a new
+  `encode_with_gpu_params_probe` API to receive the intermediate
+  quant_conv output as `&CudaBuffer<f32>` and verify the channel-split
+  produces distinct mean/logvar halves. Test count:
+  `cargo test -p ferrotorch-diffusion --features cuda --lib`
+  86 passed / 0 failed (was 83). No CPU detour on the forward path;
+  only `cpu_to_gpu` at API entry and `gpu_to_cpu` at API exit,
+  matching the existing `GpuVaeDecoder` host-boundary shape.
+
+### Fixed
+
+### Changed
+
 ## [0.5.5] - 2026-05-12
 
 ### Release notes

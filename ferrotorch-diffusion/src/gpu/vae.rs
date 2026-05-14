@@ -48,61 +48,61 @@ use crate::vae::VaeDecoder;
 ///
 /// Weight shape: `[out, in, kH, kW]` (PyTorch convention).
 #[derive(Debug)]
-struct GpuConv2d {
-    weight: CudaBuffer<f32>,
-    bias: CudaBuffer<f32>,
-    in_channels: usize,
-    out_channels: usize,
-    kernel: (usize, usize),
-    stride: (usize, usize),
-    padding: (usize, usize),
+pub(super) struct GpuConv2d {
+    pub(super) weight: CudaBuffer<f32>,
+    pub(super) bias: CudaBuffer<f32>,
+    pub(super) in_channels: usize,
+    pub(super) out_channels: usize,
+    pub(super) kernel: (usize, usize),
+    pub(super) stride: (usize, usize),
+    pub(super) padding: (usize, usize),
 }
 
 /// Parameters for a `GroupNorm(num_groups, num_channels, eps,
 /// affine=true)` resident on the GPU.
 #[derive(Debug)]
-struct GpuGroupNorm {
-    weight: CudaBuffer<f32>,
-    bias: CudaBuffer<f32>,
-    num_groups: usize,
-    num_channels: usize,
-    eps: f32,
+pub(super) struct GpuGroupNorm {
+    pub(super) weight: CudaBuffer<f32>,
+    pub(super) bias: CudaBuffer<f32>,
+    pub(super) num_groups: usize,
+    pub(super) num_channels: usize,
+    pub(super) eps: f32,
 }
 
 /// Parameters for a single `Linear(in, out, bias=true)` resident on
 /// the GPU. Weight shape `[out, in]` (PyTorch convention).
 #[derive(Debug)]
-struct GpuLinear {
-    weight: CudaBuffer<f32>,
-    bias: CudaBuffer<f32>,
-    in_features: usize,
-    out_features: usize,
+pub(super) struct GpuLinear {
+    pub(super) weight: CudaBuffer<f32>,
+    pub(super) bias: CudaBuffer<f32>,
+    pub(super) in_features: usize,
+    pub(super) out_features: usize,
 }
 
 /// One VAE `ResnetBlock2D`: GN -> SiLU -> Conv -> GN -> SiLU -> Conv
 /// + residual (optional 1x1 shortcut conv when `in != out`).
 #[derive(Debug)]
-struct GpuResnet {
-    norm1: GpuGroupNorm,
-    conv1: GpuConv2d,
-    norm2: GpuGroupNorm,
-    conv2: GpuConv2d,
+pub(super) struct GpuResnet {
+    pub(super) norm1: GpuGroupNorm,
+    pub(super) conv1: GpuConv2d,
+    pub(super) norm2: GpuGroupNorm,
+    pub(super) conv2: GpuConv2d,
     /// Present iff `in_channels != out_channels`.
-    conv_shortcut: Option<GpuConv2d>,
-    in_channels: usize,
-    out_channels: usize,
+    pub(super) conv_shortcut: Option<GpuConv2d>,
+    pub(super) in_channels: usize,
+    pub(super) out_channels: usize,
 }
 
 /// Mid-block self-attention (single-head, GroupNorm + Linear q/k/v
 /// + Linear to_out.0).
 #[derive(Debug)]
-struct GpuAttn {
-    group_norm: GpuGroupNorm,
-    to_q: GpuLinear,
-    to_k: GpuLinear,
-    to_v: GpuLinear,
-    to_out_0: GpuLinear,
-    channels: usize,
+pub(super) struct GpuAttn {
+    pub(super) group_norm: GpuGroupNorm,
+    pub(super) to_q: GpuLinear,
+    pub(super) to_k: GpuLinear,
+    pub(super) to_v: GpuLinear,
+    pub(super) to_out_0: GpuLinear,
+    pub(super) channels: usize,
 }
 
 /// `Upsample2D`: nearest-2x then `Conv2d(C->C, 3x3, pad=1)`.
@@ -121,9 +121,9 @@ struct GpuUpDecoderBlock {
 
 /// `UNetMidBlock2D` (VAE flavour): resnet0 -> attn -> resnet1.
 #[derive(Debug)]
-struct GpuMidBlock {
-    resnets: Vec<GpuResnet>,
-    attentions: Vec<GpuAttn>,
+pub(super) struct GpuMidBlock {
+    pub(super) resnets: Vec<GpuResnet>,
+    pub(super) attentions: Vec<GpuAttn>,
 }
 
 // ---------------------------------------------------------------------------
@@ -384,14 +384,14 @@ impl GpuVaeDecoder {
 // Internal helpers (state-dict popping, forward ops)
 // ---------------------------------------------------------------------------
 
-fn gpu_err(e: GpuError) -> FerrotorchError {
+pub(super) fn gpu_err(e: GpuError) -> FerrotorchError {
     FerrotorchError::InvalidArgument {
-        message: format!("GpuVaeDecoder GPU op failed: {e}"),
+        message: format!("GpuVae GPU op failed: {e}"),
     }
 }
 
 /// Remove a key from the state-dict and upload it as a CUDA buffer.
-fn pop_tensor(
+pub(super) fn pop_tensor(
     state: &mut StateDict<f32>,
     key: &str,
     expected_len: usize,
@@ -414,7 +414,7 @@ fn pop_tensor(
     cpu_to_gpu(data, device).map_err(gpu_err)
 }
 
-fn pop_conv(
+pub(super) fn pop_conv(
     state: &mut StateDict<f32>,
     prefix: &str,
     in_c: usize,
@@ -438,7 +438,7 @@ fn pop_conv(
     })
 }
 
-fn pop_linear(
+pub(super) fn pop_linear(
     state: &mut StateDict<f32>,
     prefix: &str,
     in_f: usize,
@@ -455,7 +455,7 @@ fn pop_linear(
     })
 }
 
-fn pop_groupnorm(
+pub(super) fn pop_groupnorm(
     state: &mut StateDict<f32>,
     prefix: &str,
     groups: usize,
@@ -474,7 +474,7 @@ fn pop_groupnorm(
     })
 }
 
-fn pop_resnet(
+pub(super) fn pop_resnet(
     state: &mut StateDict<f32>,
     prefix: &str,
     in_c: usize,
@@ -516,7 +516,7 @@ fn pop_resnet(
     })
 }
 
-fn pop_attn(
+pub(super) fn pop_attn(
     state: &mut StateDict<f32>,
     prefix: &str,
     channels: usize,
@@ -545,7 +545,7 @@ fn pop_attn(
 
 // ---- Forward op dispatchers --------------------------------------------------
 
-fn conv_forward(
+pub(super) fn conv_forward(
     c: &GpuConv2d,
     x: &CudaBuffer<f32>,
     shape: [usize; 4],
@@ -567,7 +567,7 @@ fn conv_forward(
     Ok((out, out_shape))
 }
 
-fn group_norm_forward(
+pub(super) fn group_norm_forward(
     g: &GpuGroupNorm,
     x: &CudaBuffer<f32>,
     shape: [usize; 4],
@@ -617,7 +617,7 @@ fn linear_xwt_plus_b(
     gpu_broadcast_add(&y, bias, &y_shape, &b_shape, &y_shape, device).map_err(gpu_err)
 }
 
-fn resnet_forward(
+pub(super) fn resnet_forward(
     r: &GpuResnet,
     x: &CudaBuffer<f32>,
     shape: [usize; 4],
@@ -653,7 +653,7 @@ fn resnet_forward(
     Ok((sum, h_shape))
 }
 
-fn attn_forward(
+pub(super) fn attn_forward(
     a: &GpuAttn,
     x: &CudaBuffer<f32>,
     shape: [usize; 4],
