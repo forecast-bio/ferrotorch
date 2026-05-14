@@ -2,11 +2,12 @@
   "uuid": "64235126-c983-4be9-a82b-b45360b303c6",
   "display_id": 1176,
   "title": "VaeEncoder module + safetensors loader + conformance test for ferrotorch-diffusion (unblocks poc-arxiv-rs tile_upscale)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "y4rr",
   "created_at": "2026-05-14T13:15:31.191969303Z",
-  "updated_at": "2026-05-14T13:15:32.745973201Z",
+  "updated_at": "2026-05-14T14:16:49.358149337Z",
+  "closed_at": "2026-05-14T14:16:49.358149337Z",
   "labels": [
     "feature"
   ]
