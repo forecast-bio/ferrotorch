@@ -1,0 +1,10 @@
+{
+  "uuid": "a35f912f-211d-4cfb-a0f1-8f56e9d582a2",
+  "issue_uuid": "64235126-c983-4be9-a82b-b45360b303c6",
+  "author": "y4rr",
+  "content": "Landed in cf6047b1b (release 0.5.6). CPU VaeEncoder<T> + Encoder<T> + DiagonalGaussianDistribution<T> + DownEncoderBlock2D + load_vae_encoder, 16 new lib tests, conformance scaffolding for the future HF mirror, Python ref script. cargo test -p ferrotorch-diffusion --lib: 79 passed (was 63). Unblocks molten#639 tile_upscale.",
+  "created_at": "2026-05-14T14:16:47.756308144Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAN1JA4pf4Kqu8kh7cvXXZDUHC7TX5CUBpaZ35p2oQukIbRWEFqzWsX9gEmgIxa6nyvcH17QZrUyF8P4UihivEDg=="
+}
