@@ -1,0 +1,10 @@
+{
+  "uuid": "3720c8ee-6304-4c4d-9043-7b7ff9ea294a",
+  "display_id": 1177,
+  "title": "GpuVaeEncoder (GPU-resident SD-1.5 VAE encoder) — mirror of GpuVaeDecoder; unblocks molten#639 tile_upscale fully-GPU path",
+  "status": "open",
+  "priority": "high",
+  "created_by": "y4rr",
+  "created_at": "2026-05-14T13:53:41.745284543Z",
+  "updated_at": "2026-05-14T13:53:41.745284543Z"
+}
