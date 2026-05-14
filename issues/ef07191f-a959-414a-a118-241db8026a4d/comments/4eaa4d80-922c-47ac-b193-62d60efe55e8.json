@@ -1,0 +1,10 @@
+{
+  "uuid": "4eaa4d80-922c-47ac-b193-62d60efe55e8",
+  "issue_uuid": "ef07191f-a959-414a-a118-241db8026a4d",
+  "author": "y4rr",
+  "content": "Landed in 35729ae7f (release 0.5.7). Dtype-aware dispatcher in load_safetensors: BF16/F16 -> rayon par_iter (CPU-bound half->f32 upcast wins on parallelism), F32/F64 -> serial loop (memory-bandwidth-bound memcpy, parallel regresses). Synthetic benchmark on 16-core RTX 3090: 300 MB BF16 file 0.205 s parallel vs 0.237 s serial = 1.15x speedup; SD-1.5 UNet (F32, 3.4 GB) preserved at 315 s serial (vs the 0.5.6 cycle's 379 s premature par_iter regression). Two new tests verify (a) parallel branch correctness on a multi-tensor BF16 file and (b) FERROTORCH_FORCE_SERIAL_LOAD=1 escape hatch produces bit-identical output. 162 lib tests pass (was 160). New examples/bench_load_dispatcher.rs runnable example for future tuning measurements.",
+  "created_at": "2026-05-14T17:40:06.149730789Z",
+  "kind": "result",
+  "signed_by": "SHA256:YWYNpJtV657L1tj0WNsAvmVQrz2HbQJv93mZZEx602c",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAg/HKsBzj3mGAfTiSH5AbOUsF4b5ilHAPc85gQwD/Zjt8AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA0w3zA5LZUP7bwSD0NW3o3UR1I+fyfiPRO6qfnY2vKUplGHcyjg/4/ZMM4mbWWt2YC6MoG0X6OZnN+OnpG8k7BA=="
+}
